@@ -14,7 +14,7 @@
 <style>
 :root{
   --bg:#f4f7fb; --card:#ffffff; --ink:#1d2433; --soft:#667085; --line:#e1e7ef;
-  --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e;
+  --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e; --temperature:#e8590c;
   --accent:#3b5bdb; --danger:#c62828;
   --warn-bg:#fff3cd; --warn-ink:#6b4e00;
   --radius:22px;
@@ -57,6 +57,7 @@ button{font:inherit;color:inherit}
   transition:transform .08s ease}
 .tile:active{transform:scale(.96)}
 .tile.big{height:178px}
+.grid .wide{grid-column:1/-1}
 .tile.small{height:108px}
 .tile .em{font-size:60px;line-height:1}
 .tile.small .em{font-size:34px}
@@ -161,7 +162,7 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '1.2';
+const VERSION = '1.3';
 const PAGE = 40;
 
 /* ===== Les choix proposés dans les formulaires ===== */
@@ -169,7 +170,8 @@ const KINDS = {
   pipi:    { emoji: '💧', label: 'Pipi',    art: 'un pipi' },
   caca:    { emoji: '💩', label: 'Caca',    art: 'un caca' },
   vomi:    { emoji: '🤢', label: 'Vomi',    art: 'un vomi' },
-  biberon: { emoji: '🍼', label: 'Alimentation', art: 'une alimentation' }
+  biberon: { emoji: '🍼', label: 'Alimentation', art: 'une alimentation' },
+  temperature: { emoji: '🌡️', label: 'Température', art: 'une température' }
 };
 const COLORS = {
   pipi: [['jaune très clair', '#fbf3b9'], ['jaune', '#f2d544'], ['jaune foncé / orangé', '#e08a1e'], ['rouge', '#d32f2f']],
@@ -321,6 +323,7 @@ function entryRow(e) {
   if (e.texture) bits.push(esc(e.texture));
   if (e.quantity_drunk != null) bits.push('biberon ' + fmtQ(e.quantity_drunk) + ' ml');
   if (e.quantity_eaten != null) bits.push('mangé ' + fmtQ(e.quantity_eaten) + ' g');
+  if (e.temperature != null) bits.push('<b>' + fmtQ(e.temperature) + ' °C</b>');
   return '<button class="row-item" data-act="open" data-id="' + esc(e.id) + '">' +
     '<span class="t">' + hhmm(new Date(e.occurred_at)) + '</span><span class="e">' + k.emoji + '</span>' +
     '<span class="b"><span><b>' + k.label + '</b>' + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</span>' +
@@ -341,11 +344,12 @@ function viewDashboard() {
   const tabs = S.children.length > 1
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
     : '';
-  const recent = ['biberon', 'caca', 'vomi', 'pipi'].map(k => mine.find(e => e.kind === k)).filter(Boolean);
+  const recent = ['biberon', 'caca', 'vomi', 'pipi', 'temperature'].map(k => mine.find(e => e.kind === k)).filter(Boolean);
   return '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">' + esc(childName(c)) + '</div></div>' +
     '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs +
     '<div class="grid">' + tile('caca', 'big') + tile('biberon', 'big') + '</div>' +
     '<div class="grid">' + tile('pipi', 'small') + tile('vomi', 'small') + '</div>' +
+    '<div class="grid">' + tile('temperature', 'small wide') + '</div>' +
     '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>' +
     '<h3>Derniers ajouts du jour</h3>' +
     (recent.length ? '<div class="rows">' + recent.map(entryRow).join('') + '</div>' : '<p class="empty">Rien pour le moment. Appuyez sur un bouton pour ajouter une entrée.</p>');
@@ -353,7 +357,7 @@ function viewDashboard() {
 
 function viewHistory() {
   const H = S.hist;
-  const kinds = ['all', 'pipi', 'caca', 'vomi', 'biberon'];
+  const kinds = ['all', 'pipi', 'caca', 'vomi', 'biberon', 'temperature'];
   let html = '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">Historique</div></div>' +
     '<button class="icon" data-act="back" aria-label="Retour">←</button></header>';
   if (S.children.length > 1) {
@@ -484,7 +488,9 @@ function formSheet(kind, entry) {
     level: entry && kind === 'vomi' ? vlevelOf(entry.texture) : 0, editId: entry ? entry.id : null, photoPath: entry ? entry.photo_path : null, photoGone: false };
   const pre = (v) => v == null ? '' : esc(fmtQ(v));
   let body = '';
-  if (kind === 'biberon') {
+  if (kind === 'temperature') {
+    body = '<label class="lbl" for="qTemp">Température (°C)</label><input id="qTemp" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 37,5" value="' + pre(entry && entry.temperature) + '">';
+  } else if (kind === 'biberon') {
     body = '<label class="lbl" for="qDrunk">Biberon (ml)</label><input id="qDrunk" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 90" value="' + pre(entry && entry.quantity_drunk) + '">' +
       '<label class="lbl" for="qEaten">Mangé (g)</label><input id="qEaten" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 30" value="' + pre(entry && entry.quantity_eaten) + '">';
   } else {
@@ -522,6 +528,7 @@ function entrySheet(id) {
   if (e.color) lines.push('Couleur : <span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
   if (e.texture) lines.push((e.kind === 'vomi' ? 'Quantité : ' : 'Texture : ') + esc(e.texture));
   if (e.quantity_drunk != null) lines.push('Biberon : ' + fmtQ(e.quantity_drunk) + ' ml');
+  if (e.temperature != null) lines.push('Température : ' + fmtQ(e.temperature) + ' °C');
   if (e.quantity_eaten != null) lines.push('Mangé : ' + fmtQ(e.quantity_eaten) + ' g');
   if (e.comment) lines.push('Commentaire : « ' + esc(e.comment) + ' »');
   openSheet('<h2>' + k.emoji + ' ' + k.label + '</h2>' +
@@ -701,7 +708,11 @@ async function saveForm() {
   const d = when ? new Date(when) : new Date();
   if (isNaN(d.getTime())) { toast('Heure invalide', 'err'); btn.disabled = false; return; }
   const row = { family_id: S.familyId, child_id: S.childId, kind: f.kind, occurred_at: d.toISOString(), comment: $('#comment').value.trim() || null };
-  if (f.kind === 'biberon') { row.quantity_drunk = numOrNull($('#qDrunk').value); row.quantity_eaten = numOrNull($('#qEaten').value); }
+  if (f.kind === 'temperature') {
+    const tv = numOrNull($('#qTemp').value);
+    if (tv == null || tv < 30 || tv > 45) { toast('Saisissez une température entre 30 et 45 °C (ex. 37,5)', 'err'); btn.disabled = false; return; }
+    row.temperature = tv;
+  } else if (f.kind === 'biberon') { row.quantity_drunk = numOrNull($('#qDrunk').value); row.quantity_eaten = numOrNull($('#qEaten').value); }
   else {
     row.color = f.color;
     if (f.kind === 'caca') row.texture = f.texture;
@@ -738,8 +749,8 @@ async function saveForm() {
 /* Modification d'une entrée déjà enregistrée */
 async function saveEdit(f, row) {
   const id = f.editId;
-  const payload = { occurred_at: row.occurred_at, comment: row.comment, color: null, texture: null, quantity_drunk: null, quantity_eaten: null };
-  ['color', 'texture', 'quantity_drunk', 'quantity_eaten'].forEach(k => { if (row[k] !== undefined) payload[k] = row[k]; });
+  const payload = { occurred_at: row.occurred_at, comment: row.comment, color: null, texture: null, quantity_drunk: null, quantity_eaten: null, temperature: null };
+  ['color', 'texture', 'quantity_drunk', 'quantity_eaten', 'temperature'].forEach(k => { if (row[k] !== undefined) payload[k] = row[k]; });
   // entrée encore en attente d'envoi sur ce téléphone : on modifie la copie locale
   const q = S.queue.find(x => x.id === id);
   if (q) {
