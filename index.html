@@ -98,6 +98,10 @@ textarea.inp{min-height:76px;resize:vertical}
 .photo-prev img,.photo-big{border-radius:14px;object-fit:cover}
 .photo-prev img{width:84px;height:84px}
 .photo-big{width:100%;max-height:360px;margin:8px 0;background:var(--line)}
+.vl{display:flex;gap:6px;margin:8px 0 2px}
+.vl button{flex:1;background:none;border:0;font-size:34px;padding:4px 0;cursor:pointer;filter:grayscale(1);opacity:.35;transition:opacity .15s}
+.vl button.on{filter:none;opacity:1}
+.vlabel{text-align:center;font-weight:700;min-height:24px;margin:0 0 4px}
 .swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 6px;margin:8px 0 4px}
 .swb{background:none;border:0;padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;border-radius:14px}
 .sw{width:50px;height:50px;border-radius:50%;border:2px solid var(--line)}
@@ -157,7 +161,7 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '1.1';
+const VERSION = '1.2';
 const PAGE = 40;
 
 /* ===== Les choix proposés dans les formulaires ===== */
@@ -165,15 +169,19 @@ const KINDS = {
   pipi:    { emoji: '💧', label: 'Pipi',    art: 'un pipi' },
   caca:    { emoji: '💩', label: 'Caca',    art: 'un caca' },
   vomi:    { emoji: '🤢', label: 'Vomi',    art: 'un vomi' },
-  biberon: { emoji: '🍼', label: 'Biberon', art: 'un biberon' }
+  biberon: { emoji: '🍼', label: 'Alimentation', art: 'une alimentation' }
 };
 const COLORS = {
   pipi: [['jaune très clair', '#fbf3b9'], ['jaune', '#f2d544'], ['jaune foncé / orangé', '#e08a1e'], ['rouge', '#d32f2f']],
   caca: [['vert foncé', '#787c1f'], ['vert clair', '#b2c25b'], ['marron', '#b4652d'], ['marron foncé', '#7a3413'],
          ['jaune moutarde', '#f6d447'], ['gris', '#bba094'], ['rouge', '#e03338'], ['noir', '#2b170d']]
 };
-COLORS.vomi = [['jaune moutarde', '#d9a21b'], ['marron', '#7a4a24'], ['vert', '#5b8a3c'], ['noir', '#1f1f1f'], ['rouge', '#d32f2f'], ['blanc / très pâle', '#f1ece0']];
-const TEXTURES = ['liquide', 'pâteux', 'boulette', 'granuleux', 'dur'];
+COLORS.vomi = [['blanc', '#f1ece0'], ['marron', '#7a4a24'], ['rouge', '#d32f2f']];
+// anciens libellés gardés uniquement pour bien afficher les entrées déjà enregistrées
+const OLD_COLORS = { vomi: [['jaune moutarde', '#d9a21b'], ['vert', '#5b8a3c'], ['noir', '#1f1f1f'], ['blanc / très pâle', '#f1ece0']] };
+const TEXTURES = ['Normal', 'Mou', 'Liquide', 'Dur', 'Diarrhée'];
+// quantité de vomi : 1 à 5 smileys (stockée dans la colonne « texture »)
+const VLEVELS = ['Petit rejet', 'Moins 1/2 Bib', '1/2 Bib', '+ 1/2 Bib', 'Tout le Bib'];
 
 /* ===== Petits outils ===== */
 const $ = s => document.querySelector(s);
@@ -283,7 +291,7 @@ function renderBanner() {
 const childName = c => (c && (c.first_name || c.label)) || '';
 const curChild = () => S.children.find(c => c.id === S.childId) || S.children[0] || null;
 const childNameById = id => childName(S.children.find(c => c.id === id));
-const colorHex = (kind, name) => { const f = (COLORS[kind] || []).find(x => x[0] === name); return f ? f[1] : 'transparent'; };
+const colorHex = (kind, name) => { const f = (COLORS[kind] || []).concat(OLD_COLORS[kind] || []).find(x => x[0] === name); return f ? f[1] : 'transparent'; };
 
 /* ===== Écrans ===== */
 function viewLoading() { return '<div class="center"><div style="font-size:56px">👶</div><p class="soft">Chargement…</p></div>'; }
@@ -311,8 +319,8 @@ function entryRow(e) {
   const bits = [];
   if (e.color) bits.push('<span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
   if (e.texture) bits.push(esc(e.texture));
-  if (e.quantity_drunk != null) bits.push('bu ' + fmtQ(e.quantity_drunk) + ' ml');
-  if (e.quantity_eaten != null) bits.push('mangé ' + fmtQ(e.quantity_eaten) + ' ml');
+  if (e.quantity_drunk != null) bits.push('biberon ' + fmtQ(e.quantity_drunk) + ' ml');
+  if (e.quantity_eaten != null) bits.push('mangé ' + fmtQ(e.quantity_eaten) + ' g');
   return '<button class="row-item" data-act="open" data-id="' + esc(e.id) + '">' +
     '<span class="t">' + hhmm(new Date(e.occurred_at)) + '</span><span class="e">' + k.emoji + '</span>' +
     '<span class="b"><span><b>' + k.label + '</b>' + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</span>' +
@@ -333,7 +341,7 @@ function viewDashboard() {
   const tabs = S.children.length > 1
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
     : '';
-  const recent = mine.slice(0, 6);
+  const recent = ['biberon', 'caca', 'vomi', 'pipi'].map(k => mine.find(e => e.kind === k)).filter(Boolean);
   return '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">' + esc(childName(c)) + '</div></div>' +
     '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs +
     '<div class="grid">' + tile('caca', 'big') + tile('biberon', 'big') + '</div>' +
@@ -393,6 +401,12 @@ function codeSheet(first) {
 
 /* ===== Photos ===== */
 function photoPicker() {
+  const ex = S.form && S.form.photoPath && !S.form.photoGone && !S.photo;
+  if (ex) {
+    return '<div class="photo-prev"><span>📷 Photo déjà enregistrée</span><button type="button" class="mini" data-act="photoremove">Retirer la photo</button></div>' +
+      '<div class="photo-row"><label>📷 Remplacer<input type="file" accept="image/*" capture="environment" data-photo="1"></label>' +
+      '<label>🖼️ Galerie<input type="file" accept="image/*" data-photo="1"></label></div>';
+  }
   if (S.photo) {
     return '<div class="photo-prev"><img alt="Photo" src="' + S.photo.url + '"><button type="button" class="mini" data-act="photoremove">Retirer la photo</button></div>';
   }
@@ -456,14 +470,23 @@ async function cleanOldPhotos() {
   } catch (e) { log('Nettoyage des photos impossible', e && e.message); }
 }
 
-function formSheet(kind) {
+function vlevelOf(label) { const i = VLEVELS.indexOf(label); return i < 0 ? 0 : i + 1; }
+function paintLevel() {
+  const n = S.form ? S.form.level || 0 : 0;
+  document.querySelectorAll('[data-act="vlevel"]').forEach(b => b.classList.toggle('on', Number(b.dataset.n) <= n));
+  const l = $('#vlabel'); if (l) l.textContent = n ? VLEVELS[n - 1] : 'Quantité (facultatif)';
+}
+
+function formSheet(kind, entry) {
   S.photo = null;
-  const k = KINDS[kind], c = curChild();
-  S.form = { kind: kind, color: null, texture: null };
+  const k = KINDS[kind], c = entry ? (S.children.find(x => x.id === entry.child_id) || curChild()) : curChild();
+  S.form = { kind: kind, color: entry ? entry.color : (kind === 'vomi' ? 'blanc' : null), texture: entry && kind === 'caca' ? entry.texture : null,
+    level: entry && kind === 'vomi' ? vlevelOf(entry.texture) : 0, editId: entry ? entry.id : null, photoPath: entry ? entry.photo_path : null, photoGone: false };
+  const pre = (v) => v == null ? '' : esc(fmtQ(v));
   let body = '';
   if (kind === 'biberon') {
-    body = '<label class="lbl" for="qDrunk">Quantité bue (ml)</label><input id="qDrunk" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 90">' +
-      '<label class="lbl" for="qEaten">Quantité mangée (ml)</label><input id="qEaten" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 30">';
+    body = '<label class="lbl" for="qDrunk">Biberon (ml)</label><input id="qDrunk" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 90" value="' + pre(entry && entry.quantity_drunk) + '">' +
+      '<label class="lbl" for="qEaten">Mangé (g)</label><input id="qEaten" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 30" value="' + pre(entry && entry.quantity_eaten) + '">';
   } else {
     body = '<label class="lbl">Couleur</label><div class="swatches">' +
       COLORS[kind].map(x => '<button type="button" class="swb" data-act="color" data-name="' + esc(x[0]) + '" aria-label="' + esc(x[0]) + '">' +
@@ -472,13 +495,21 @@ function formSheet(kind) {
       body += '<label class="lbl">Texture</label><div class="chips" style="margin-top:8px">' +
         TEXTURES.map(t => '<button type="button" class="chip" data-act="texture" data-name="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>';
     }
+    if (kind === 'vomi') {
+      body += '<label class="lbl">Quantité</label><div class="vl">' +
+        [1, 2, 3, 4, 5].map(n => '<button type="button" data-act="vlevel" data-n="' + n + '" aria-label="' + esc(VLEVELS[n - 1]) + '">' + k.emoji + '</button>').join('') +
+        '</div><div class="vlabel" id="vlabel"></div>';
+    }
   }
-  openSheet('<h2>' + k.emoji + ' Ajouter ' + k.art + '</h2>' +
+  openSheet('<h2>' + k.emoji + ' ' + (entry ? 'Modifier : ' + k.label.toLowerCase() : kind === 'biberon' ? 'Alimentation' : 'Ajouter ' + k.art) + '</h2>' +
     (S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '') + body +
-    '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500"></textarea>' +
+    '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500">' + esc(entry && entry.comment || '') + '</textarea>' +
     '<label class="lbl">Photo (facultatif)</label><div id="photoBox">' + photoPicker() + '</div>' +
-    '<label class="lbl" for="when">Heure</label><input id="when" class="inp" type="datetime-local" value="' + inputValue(new Date()) + '">' +
-    '<button class="btn" id="saveBtn" data-act="save">Enregistrer</button><button class="btn ghost" data-act="close">Annuler</button>');
+    '<label class="lbl" for="when">Heure</label><input id="when" class="inp" type="datetime-local" value="' + inputValue(entry ? new Date(entry.occurred_at) : new Date()) + '">' +
+    '<button class="btn" id="saveBtn" data-act="save">' + (entry ? 'Enregistrer les modifications' : 'Enregistrer') + '</button><button class="btn ghost" data-act="close">Annuler</button>');
+  document.querySelectorAll('.swb').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.color));
+  document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.texture));
+  paintLevel();
 }
 
 function findEntry(id) { return S.today.find(e => e.id === id) || S.hist.items.find(e => e.id === id); }
@@ -489,14 +520,15 @@ function entrySheet(id) {
   const k = KINDS[e.kind], d = new Date(e.occurred_at);
   const lines = [];
   if (e.color) lines.push('Couleur : <span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
-  if (e.texture) lines.push('Texture : ' + esc(e.texture));
-  if (e.quantity_drunk != null) lines.push('Quantité bue : ' + fmtQ(e.quantity_drunk) + ' ml');
-  if (e.quantity_eaten != null) lines.push('Quantité mangée : ' + fmtQ(e.quantity_eaten) + ' ml');
+  if (e.texture) lines.push((e.kind === 'vomi' ? 'Quantité : ' : 'Texture : ') + esc(e.texture));
+  if (e.quantity_drunk != null) lines.push('Biberon : ' + fmtQ(e.quantity_drunk) + ' ml');
+  if (e.quantity_eaten != null) lines.push('Mangé : ' + fmtQ(e.quantity_eaten) + ' g');
   if (e.comment) lines.push('Commentaire : « ' + esc(e.comment) + ' »');
   openSheet('<h2>' + k.emoji + ' ' + k.label + '</h2>' +
     '<p class="soft">' + esc(dayLabel(d)) + ' à ' + hhmm(d) + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</p>' +
     (lines.length ? lines.map(l => '<div class="kv"><span>' + l + '</span></div>').join('') : '<p class="soft">Aucun détail renseigné.</p>') +
     (e.photo_path ? '<div id="photoShow"><p class="soft">Chargement de la photo…</p></div>' : '') +
+    '<button class="btn" data-act="edit" data-id="' + esc(e.id) + '">✏️ Modifier</button>' +
     '<button class="btn danger" data-act="delete" data-id="' + esc(e.id) + '">Supprimer</button>' +
     '<button class="btn ghost" data-act="close">Fermer</button>');
 }
@@ -670,7 +702,12 @@ async function saveForm() {
   if (isNaN(d.getTime())) { toast('Heure invalide', 'err'); btn.disabled = false; return; }
   const row = { family_id: S.familyId, child_id: S.childId, kind: f.kind, occurred_at: d.toISOString(), comment: $('#comment').value.trim() || null };
   if (f.kind === 'biberon') { row.quantity_drunk = numOrNull($('#qDrunk').value); row.quantity_eaten = numOrNull($('#qEaten').value); }
-  else { row.color = f.color; if (f.kind === 'caca') row.texture = f.texture; }
+  else {
+    row.color = f.color;
+    if (f.kind === 'caca') row.texture = f.texture;
+    if (f.kind === 'vomi') row.texture = f.level ? VLEVELS[f.level - 1] : null;
+  }
+  if (f.editId) { await saveEdit(f, row); btn.disabled = false; return; }
   let photoNote = null;
   if (S.photo) {
     if (!navigator.onLine) photoNote = 'Hors connexion : l\'entrée est enregistrée sans la photo';
@@ -696,6 +733,39 @@ async function saveForm() {
     if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
     await refreshData();
   }
+}
+
+/* Modification d'une entrée déjà enregistrée */
+async function saveEdit(f, row) {
+  const id = f.editId;
+  const payload = { occurred_at: row.occurred_at, comment: row.comment, color: null, texture: null, quantity_drunk: null, quantity_eaten: null };
+  ['color', 'texture', 'quantity_drunk', 'quantity_eaten'].forEach(k => { if (row[k] !== undefined) payload[k] = row[k]; });
+  // entrée encore en attente d'envoi sur ce téléphone : on modifie la copie locale
+  const q = S.queue.find(x => x.id === id);
+  if (q) {
+    Object.assign(q, payload); saveQueue();
+    const t = S.today.find(x => x.id === id); if (t) Object.assign(t, payload);
+    S.today.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+    setPhoto(null); closeSheet(); toast('Modifié ✔'); render(); return;
+  }
+  if (!navigator.onLine) { toast('Modification impossible hors connexion, réessayez quand le réseau revient', 'err'); return; }
+  let photoNote = null, oldToRemove = null;
+  if (S.photo) {
+    const path = S.familyId + '/' + uuid() + '.jpg';
+    const perr = await uploadPhoto(path, S.photo.blob);
+    if (perr) { log('Photo non envoyée : ' + frError(perr).text, perr.message); photoNote = "La photo n'a pas pu être envoyée (voir le journal), le reste est modifié"; }
+    else { payload.photo_path = path; oldToRemove = f.photoPath; }
+  } else if (f.photoGone && f.photoPath) { payload.photo_path = null; oldToRemove = f.photoPath; }
+  const r = await S.sb.from('entries').update(payload).eq('id', id);
+  if (r.error) {
+    if (payload.photo_path) S.sb.storage.from('photos').remove([payload.photo_path]);
+    return fail(r.error, "Modification d'une entrée");
+  }
+  if (oldToRemove) S.sb.storage.from('photos').remove([oldToRemove]);
+  setPhoto(null);
+  closeSheet();
+  if (photoNote) toast(photoNote, 'err'); else toast('Modifié ✔');
+  await refreshData();
 }
 
 async function deleteEntry(id) {
@@ -881,9 +951,16 @@ document.addEventListener('click', async ev => {
         document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.texture));
       }
       break;
+    case 'vlevel':
+      if (S.form) { const n = Number(el.dataset.n); S.form.level = S.form.level === n ? 0 : n; paintLevel(); }
+      break;
+    case 'edit': { const ee = findEntry(el.dataset.id); if (ee) { closeSheet(); formSheet(ee.kind, ee); } break; }
     case 'save': await saveForm(); break;
     case 'open': { entrySheet(el.dataset.id); const pe = findEntry(el.dataset.id); if (pe && pe.photo_path) showEntryPhoto(pe.photo_path); break; }
-    case 'photoremove': setPhoto(null); break;
+    case 'photoremove':
+      if (S.photo) setPhoto(null);
+      else if (S.form) { S.form.photoGone = true; const bx = $('#photoBox'); if (bx) bx.innerHTML = photoPicker(); }
+      break;
     case 'delete': await deleteEntry(el.dataset.id); break;
     case 'share': await shareCode(); break;
     case 'copy': await copyText(S.code, 'Code copié'); break;
