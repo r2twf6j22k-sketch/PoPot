@@ -91,6 +91,13 @@ textarea.inp{min-height:76px;resize:vertical}
 .hero h1{font-size:34px;font-weight:800;margin-top:6px}
 
 /* choix de couleur */
+.photo-row{display:flex;gap:10px;margin:8px 0 4px}
+.photo-row label{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:2px dashed var(--line);border-radius:14px;padding:12px 6px;font-weight:600;cursor:pointer;text-align:center;font-size:15px}
+.photo-row input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.photo-prev{display:flex;align-items:center;gap:12px;margin-top:8px}
+.photo-prev img,.photo-big{border-radius:14px;object-fit:cover}
+.photo-prev img{width:84px;height:84px}
+.photo-big{width:100%;max-height:360px;margin:8px 0;background:var(--line)}
 .swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 6px;margin:8px 0 4px}
 .swb{background:none;border:0;padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;border-radius:14px}
 .sw{width:50px;height:50px;border-radius:50%;border:2px solid var(--line)}
@@ -150,7 +157,7 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '1.0';
+const VERSION = '1.1';
 const PAGE = 40;
 
 /* ===== Les choix proposés dans les formulaires ===== */
@@ -295,7 +302,8 @@ function viewWelcome() {
     '<section class="card"><h2>Rejoindre une famille</h2>' +
     '<p class="soft">Saisissez le code reçu de l\'autre parent.</p>' +
     '<input id="joinCode" class="inp code" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16">' +
-    '<button class="btn alt" data-act="join">Rejoindre cette famille</button></section>';
+    '<button class="btn alt" data-act="join">Rejoindre cette famille</button></section>' +
+    '<button class="btn ghost" data-act="logs" style="margin-top:18px">Journal des erreurs</button>';
 }
 
 function entryRow(e) {
@@ -309,6 +317,7 @@ function entryRow(e) {
     '<span class="t">' + hhmm(new Date(e.occurred_at)) + '</span><span class="e">' + k.emoji + '</span>' +
     '<span class="b"><span><b>' + k.label + '</b>' + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</span>' +
     (bits.length ? '<span class="d">' + bits.join(' · ') + '</span>' : '') +
+    (e.photo_path ? '<span class="d">📷 photo</span>' : '') +
     (e.comment ? '<span class="c">« ' + esc(e.comment) + ' »</span>' : '') + '</span></button>';
 }
 
@@ -382,7 +391,73 @@ function codeSheet(first) {
     '<button class="btn ghost" data-act="close">Fermer</button>');
 }
 
+/* ===== Photos ===== */
+function photoPicker() {
+  if (S.photo) {
+    return '<div class="photo-prev"><img alt="Photo" src="' + S.photo.url + '"><button type="button" class="mini" data-act="photoremove">Retirer la photo</button></div>';
+  }
+  return '<div class="photo-row">' +
+    '<label>📷 Prendre une photo<input type="file" accept="image/*" capture="environment" data-photo="1"></label>' +
+    '<label>🖼️ Galerie<input type="file" accept="image/*" data-photo="1"></label></div>';
+}
+function setPhoto(p) {
+  if (S.photo && S.photo.url) URL.revokeObjectURL(S.photo.url);
+  S.photo = p;
+  const box = $('#photoBox');
+  if (box) box.innerHTML = photoPicker();
+}
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 1280, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('Conversion de la photo impossible')), 'image/jpeg', 0.8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Photo illisible")); };
+    img.src = url;
+  });
+}
+document.addEventListener('change', async ev => {
+  const inp = ev.target;
+  if (!inp.matches || !inp.matches('input[data-photo]')) return;
+  const file = inp.files && inp.files[0];
+  if (!file) return;
+  try {
+    const blob = await shrinkImage(file);
+    setPhoto({ blob: blob, url: URL.createObjectURL(blob) });
+  } catch (err) {
+    log('Photo : ' + err.message);
+    toast("Cette photo n'a pas pu être lue, essayez-en une autre", 'err');
+  }
+});
+async function uploadPhoto(path, blob) {
+  const r = await S.sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+  return r.error || null;
+}
+async function photoUrl(path) {
+  const r = await S.sb.storage.from('photos').createSignedUrl(path, 3600);
+  return r.error ? null : r.data.signedUrl;
+}
+/* Les photos sont supprimées au bout de 10 jours (nettoyage fait à l'ouverture de l'application). */
+async function cleanOldPhotos() {
+  try {
+    const limit = new Date(Date.now() - 10 * 864e5).toISOString();
+    const r = await S.sb.from('entries').select('id,photo_path').eq('family_id', S.familyId)
+      .not('photo_path', 'is', null).lt('created_at', limit).limit(50);
+    if (r.error || !r.data || !r.data.length) return;
+    await S.sb.storage.from('photos').remove(r.data.map(x => x.photo_path));
+    for (const x of r.data) await S.sb.from('entries').update({ photo_path: null }).eq('id', x.id);
+    log('Info : ' + r.data.length + ' photo(s) de plus de 10 jours supprimée(s)');
+  } catch (e) { log('Nettoyage des photos impossible', e && e.message); }
+}
+
 function formSheet(kind) {
+  S.photo = null;
   const k = KINDS[kind], c = curChild();
   S.form = { kind: kind, color: null, texture: null };
   let body = '';
@@ -401,6 +476,7 @@ function formSheet(kind) {
   openSheet('<h2>' + k.emoji + ' Ajouter ' + k.art + '</h2>' +
     (S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '') + body +
     '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500"></textarea>' +
+    '<label class="lbl">Photo (facultatif)</label><div id="photoBox">' + photoPicker() + '</div>' +
     '<label class="lbl" for="when">Heure</label><input id="when" class="inp" type="datetime-local" value="' + inputValue(new Date()) + '">' +
     '<button class="btn" id="saveBtn" data-act="save">Enregistrer</button><button class="btn ghost" data-act="close">Annuler</button>');
 }
@@ -420,8 +496,16 @@ function entrySheet(id) {
   openSheet('<h2>' + k.emoji + ' ' + k.label + '</h2>' +
     '<p class="soft">' + esc(dayLabel(d)) + ' à ' + hhmm(d) + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</p>' +
     (lines.length ? lines.map(l => '<div class="kv"><span>' + l + '</span></div>').join('') : '<p class="soft">Aucun détail renseigné.</p>') +
+    (e.photo_path ? '<div id="photoShow"><p class="soft">Chargement de la photo…</p></div>' : '') +
     '<button class="btn danger" data-act="delete" data-id="' + esc(e.id) + '">Supprimer</button>' +
     '<button class="btn ghost" data-act="close">Fermer</button>');
+}
+
+async function showEntryPhoto(path) {
+  const u = await photoUrl(path);
+  const box = $('#photoShow');
+  if (!box) return;
+  box.innerHTML = u ? '<img class="photo-big" alt="Photo" src="' + esc(u) + '">' : '<p class="soft">Photo indisponible (supprimée ou hors connexion).</p>';
 }
 
 function settingsSheet() {
@@ -518,11 +602,13 @@ function subscribe() {
 }
 
 async function enterFamily() {
+  if (S.code && S.code !== '?') store.set('popot-code', S.code);
   await Promise.all([loadChildren(), loadToday()]);
   S.view = 'dashboard';
   S.offline = false;
   subscribe();
   flushQueue();
+  cleanOldPhotos();
 }
 
 async function loadFamily() {
@@ -585,9 +671,21 @@ async function saveForm() {
   const row = { family_id: S.familyId, child_id: S.childId, kind: f.kind, occurred_at: d.toISOString(), comment: $('#comment').value.trim() || null };
   if (f.kind === 'biberon') { row.quantity_drunk = numOrNull($('#qDrunk').value); row.quantity_eaten = numOrNull($('#qEaten').value); }
   else { row.color = f.color; if (f.kind === 'caca') row.texture = f.texture; }
+  let photoNote = null;
+  if (S.photo) {
+    if (!navigator.onLine) photoNote = 'Hors connexion : l\'entrée est enregistrée sans la photo';
+    else {
+      const path = S.familyId + '/' + uuid() + '.jpg';
+      const perr = await uploadPhoto(path, S.photo.blob);
+      if (perr) { log("Photo non envoyée : " + frError(perr).text, perr.message); photoNote = "La photo n'a pas pu être envoyée (voir le journal), l'entrée est enregistrée sans elle"; }
+      else row.photo_path = path;
+    }
+  }
   const r = await addEntry(row);
+  if (!r.ok && row.photo_path) S.sb.storage.from('photos').remove([row.photo_path]);
   btn.disabled = false;
   if (!r.ok) return;
+  setPhoto(null);
   closeSheet();
   if (r.queued) {
     S.today = [row].concat(S.today).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
@@ -595,15 +693,17 @@ async function saveForm() {
     toast('Enregistré sur ce téléphone, il sera envoyé dès que la connexion revient');
     render();
   } else {
-    toast('Ajouté ✔');
+    if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
     await refreshData();
   }
 }
 
 async function deleteEntry(id) {
   if (!confirm("Supprimer définitivement cette entrée ?\nCette action est irréversible.")) return;
+  const old = findEntry(id);
   const r = await S.sb.from('entries').delete().eq('id', id);
   if (r.error) return fail(r.error, "Suppression d'une entrée");
+  if (old && old.photo_path) S.sb.storage.from('photos').remove([old.photo_path]);
   closeSheet();
   toast('Entrée supprimée');
   await refreshData();
@@ -660,7 +760,7 @@ async function leaveFamily() {
   }
   if (S.channel) { S.sb.removeChannel(S.channel); S.channel = null; }
   S.familyId = null; S.code = null; S.children = []; S.childId = null; S.today = []; S.queue = [];
-  saveQueue(); store.del('popot-cache'); store.del('popot-child');
+  saveQueue(); store.del('popot-cache'); store.del('popot-child'); store.del('popot-code');
   S.view = 'welcome';
   closeSheet();
   render();
@@ -695,17 +795,42 @@ async function boot() {
     if (!S.sb) {
       if (!window.supabase) throw new Error('Failed to fetch (bibliothèque non chargée)');
       S.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+      S.sb.auth.onAuthStateChange(ev => {
+        if (ev === 'SIGNED_OUT' && S.familyId && !S.rebooting) {
+          S.rebooting = true;
+          log('Info : la connexion a expiré, reconnexion automatique');
+          boot().then(() => { S.rebooting = false; }, () => { S.rebooting = false; });
+        }
+      });
     }
     const g = await S.sb.auth.getSession();
-    if (g.error) throw g.error;
-    let session = g.data.session;
+    let session = g.data && g.data.session;
+    if (g.error && !session) {
+      const f0 = frError(g.error);
+      if (f0.kind === 'offline' || f0.kind === 'down') throw g.error;
+      log('Info : la connexion mémorisée sur ce téléphone était inutilisable, nouvelle connexion automatique', g.error.message);
+    }
     if (!session) {
       const a = await S.sb.auth.signInAnonymously();
       if (a.error) throw a.error;
       session = a.data.session;
+      log('Info : nouvelle connexion automatique créée sur ce téléphone');
     }
     S.user = session.user;
     await loadFamily();
+    if (S.view === 'welcome') {
+      const saved = store.get('popot-code', null);
+      if (saved) {
+        const j = await S.sb.rpc('join_family', { p_code: saved });
+        if (j.error) {
+          if (frError(j.error).kind === 'code') { store.del('popot-code'); log("Info : le code famille mémorisé n'existe plus"); }
+          else throw j.error;
+        } else {
+          log('Info : famille retrouvée automatiquement grâce au code mémorisé');
+          await loadFamily();
+        }
+      }
+    }
   } catch (err) {
     const f = frError(err), c = store.get('popot-cache', null);
     log('Démarrage : ' + f.text, err && err.message);
@@ -757,7 +882,8 @@ document.addEventListener('click', async ev => {
       }
       break;
     case 'save': await saveForm(); break;
-    case 'open': entrySheet(el.dataset.id); break;
+    case 'open': { entrySheet(el.dataset.id); const pe = findEntry(el.dataset.id); if (pe && pe.photo_path) showEntryPhoto(pe.photo_path); break; }
+    case 'photoremove': setPhoto(null); break;
     case 'delete': await deleteEntry(el.dataset.id); break;
     case 'share': await shareCode(); break;
     case 'copy': await copyText(S.code, 'Code copié'); break;
@@ -786,6 +912,7 @@ window.addEventListener('online', () => { renderBanner(); flushQueue(); refreshD
 window.addEventListener('offline', renderBanner);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.familyId) { flushQueue(); refreshData(); } });
 
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* rien */ }
 todayLog();
 boot();
 })();
