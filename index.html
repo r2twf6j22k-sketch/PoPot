@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PoPoT</title>
+<meta name="theme-color" content="#f4f7fb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PoPoT">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E👶%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f4f7fb; --card:#ffffff; --ink:#1d2433; --soft:#667085; --line:#e1e7ef;
+  --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e;
+  --accent:#3b5bdb; --danger:#c62828;
+  --warn-bg:#fff3cd; --warn-ink:#6b4e00;
+  --radius:22px;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#11151d; --card:#1a202b; --ink:#eef2f8; --soft:#9aa6b8; --line:#2a3342;
+         --accent:#6f8cff; --warn-bg:#4a3a10; --warn-ink:#ffe08a; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.35}
+body{min-height:100dvh;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#app{max-width:560px;margin:0 auto;padding:14px 16px 48px}
+h1,h2,h3{margin:0}
+h2{font-size:21px}
+h3{font-size:16px;margin-top:22px}
+.soft{color:var(--soft)}
+.small{font-size:13px}
+button{font:inherit;color:inherit}
+
+/* barre du haut */
+.top{display:flex;align-items:center;justify-content:space-between;padding:6px 2px 14px}
+.top .hi{font-size:13px;color:var(--soft);font-weight:600}
+.top .sub{font-size:26px;font-weight:800;letter-spacing:-.01em}
+.icon{border:0;background:var(--card);border:1px solid var(--line);width:46px;height:46px;border-radius:50%;font-size:22px;cursor:pointer}
+
+/* bandeau hors connexion */
+.banner{display:none;position:sticky;top:0;z-index:10;background:var(--warn-bg);color:var(--warn-ink);
+  padding:8px 14px;font-size:14px;font-weight:600;text-align:center}
+.banner.on{display:block}
+
+/* tableau de bord */
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px}
+.chip{border:2px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:15px;font-weight:600;cursor:pointer}
+.chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--card))}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.tile{--c:var(--accent);border:2.5px solid var(--c);background:var(--card);
+  background:color-mix(in srgb,var(--c) 13%,var(--card));border-radius:var(--radius);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:10px;
+  transition:transform .08s ease}
+.tile:active{transform:scale(.96)}
+.tile.big{height:178px}
+.tile.small{height:108px}
+.tile .em{font-size:60px;line-height:1}
+.tile.small .em{font-size:34px}
+.tile .nm{font-weight:800;font-size:18px}
+.tile.small .nm{font-size:15px}
+.tile .meta{font-size:12px;color:var(--soft);text-align:center}
+.tile.small .meta{font-size:11px}
+.btn{display:block;width:100%;border:0;border-radius:16px;padding:15px 18px;font-weight:700;font-size:16px;
+  background:var(--accent);color:#fff;cursor:pointer;margin-top:12px}
+.btn.alt{background:var(--card);background:color-mix(in srgb,var(--accent) 12%,var(--card));
+  color:var(--ink);border:2px solid color-mix(in srgb,var(--accent) 40%,transparent)}
+.btn.ghost{background:transparent;color:var(--soft)}
+.btn.danger{background:var(--danger)}
+.btn:disabled{opacity:.55}
+.row{display:flex;gap:10px}
+.row .btn{margin-top:12px}
+.mini{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:6px 10px;font-size:13px;cursor:pointer}
+
+/* champs */
+.inp{width:100%;border:2px solid var(--line);background:var(--bg);color:var(--ink);border-radius:14px;
+  padding:13px 14px;font:inherit;font-size:16px;margin-top:8px}
+.inp:focus{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);border-color:var(--accent)}
+.inp.code{font-family:ui-monospace,Menlo,monospace;letter-spacing:.18em;text-transform:uppercase;text-align:center;font-size:21px}
+textarea.inp{min-height:76px;resize:vertical}
+.lbl{display:block;margin-top:18px;font-weight:700;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-top:14px}
+.card p{margin:6px 0 4px}
+
+/* accueil */
+.hero{text-align:center;padding:26px 0 6px}
+.hero .logo{font-size:64px;line-height:1}
+.hero h1{font-size:34px;font-weight:800;margin-top:6px}
+
+/* choix de couleur */
+.swatches{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0 6px}
+.sw{width:48px;height:48px;border-radius:50%;border:2px solid var(--line);cursor:pointer}
+.sw.on{outline:4px solid var(--accent);outline-offset:2px}
+
+/* listes */
+.rows{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.row-item{display:flex;gap:12px;align-items:flex-start;text-align:left;width:100%;background:var(--card);
+  border:1px solid var(--line);border-radius:16px;padding:12px 14px;cursor:pointer}
+.row-item .t{font-variant-numeric:tabular-nums;font-weight:700;min-width:46px;color:var(--soft)}
+.row-item .e{font-size:26px;line-height:1}
+.row-item .b{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.row-item .d{font-size:14px;color:var(--soft)}
+.row-item .c{font-size:14px;font-style:italic;overflow-wrap:anywhere}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;border:1px solid var(--line);vertical-align:-1px}
+.day{margin:20px 0 4px;font-size:15px;color:var(--soft);font-weight:700}
+.day::first-letter{text-transform:uppercase}
+.empty{text-align:center;color:var(--soft);padding:26px 10px}
+
+/* fenêtre du bas */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;z-index:20}
+.backdrop.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-width:560px;margin:0 auto;max-height:92dvh;overflow:auto;
+  background:var(--card);border-radius:26px 26px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom));
+  z-index:21;transform:translateY(105%);visibility:hidden;transition:transform .2s ease,visibility .2s}
+.sheet.on{transform:none;visibility:visible}
+.kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.mono{font-family:ui-monospace,Menlo,monospace;letter-spacing:.12em}
+.bigcode{font-family:ui-monospace,Menlo,monospace;font-size:34px;font-weight:800;letter-spacing:.18em;text-align:center;
+  padding:18px 6px;margin:12px 0 4px;background:var(--bg);border-radius:18px;border:2px dashed var(--line)}
+pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radius:12px;padding:12px;font-size:12.5px;max-height:44dvh;overflow:auto}
+
+/* message */
+.toast{position:fixed;left:14px;right:14px;bottom:calc(18px + env(safe-area-inset-bottom));max-width:532px;margin:0 auto;
+  background:#222a38;color:#fff;border-radius:16px;padding:14px 16px;font-weight:600;z-index:40;
+  opacity:0;pointer-events:none;transform:translateY(12px);transition:.2s}
+.toast.on{opacity:1;transform:none}
+.toast.err{background:var(--danger)}
+.center{text-align:center;padding:60px 10px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="banner" class="banner"></div>
+<div id="app"></div>
+<div id="backdrop" class="backdrop" data-act="close"></div>
+<div id="sheet" class="sheet" role="dialog" aria-modal="true"></div>
+<div id="toast" class="toast" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(() => {
+'use strict';
+
+/* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
+const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
+const VERSION = '1.0';
+const PAGE = 40;
+
+/* ===== Les choix proposés dans les formulaires ===== */
+const KINDS = {
+  pipi:    { emoji: '💧', label: 'Pipi',    art: 'un pipi' },
+  caca:    { emoji: '💩', label: 'Caca',    art: 'un caca' },
+  vomi:    { emoji: '🤢', label: 'Vomi',    art: 'un vomi' },
+  biberon: { emoji: '🍼', label: 'Biberon', art: 'un biberon' }
+};
+const COLORS = {
+  pipi: [['jaune très clair', '#fbf3b9'], ['jaune', '#f2d544'], ['jaune foncé / orangé', '#e08a1e'], ['rouge', '#d32f2f']],
+  caca: [['jaune moutarde', '#d9a21b'], ['marron', '#7a4a24'], ['vert', '#5b8a3c'], ['noir', '#1f1f1f'], ['rouge', '#d32f2f'], ['blanc / très pâle', '#f1ece0']]
+};
+COLORS.vomi = COLORS.caca;
+const TEXTURES = ['liquide', 'pâteux', 'boulette', 'granuleux', 'dur'];
+
+/* ===== Petits outils ===== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = n => String(n).padStart(2, '0');
+const hhmm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+const dayKey = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const inputValue = d => dayKey(d) + 'T' + hhmm(d);
+const fmtQ = v => String(Math.round(Number(v) * 10) / 10).replace('.', ',');
+const numOrNull = x => { const v = parseFloat(String(x).replace(',', '.')); return isFinite(v) && v >= 0 ? Math.round(v * 10) / 10 : null; };
+const uuid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.floor(Math.random() * 16); return (c === 'x' ? r : (r & 3 | 8)).toString(16); });
+const dayLabel = d => {
+  const t = new Date(), y = new Date(); y.setDate(t.getDate() - 1);
+  const k = dayKey(d);
+  if (k === dayKey(t)) return "Aujourd'hui";
+  if (k === dayKey(y)) return 'Hier';
+  return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+};
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage indisponible */ } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) { /* rien */ } }
+};
+
+/* ===== État de l'application ===== */
+const S = {
+  sb: null, user: null, familyId: null, code: null,
+  children: [], childId: null, today: [],
+  hist: { items: [], more: false, loading: false, kind: 'all', childId: null, day: '' },
+  view: 'loading', errText: '', form: null,
+  queue: store.get('popot-queue', []), offline: false
+};
+let flushing = false, rtTimer = null, toastTimer = null;
+
+/* ===== Journal des erreurs : un seul jour conservé, en français ===== */
+function log(text, tech) {
+  let l = store.get('popot-log', null);
+  if (!l || l.day !== dayKey(new Date())) l = { day: dayKey(new Date()), items: [] };
+  l.items.push({ t: new Date().toISOString(), text: text, tech: String(tech || '') });
+  if (l.items.length > 200) l.items.shift();
+  store.set('popot-log', l);
+}
+function todayLog() {
+  const l = store.get('popot-log', null);
+  if (l && l.day === dayKey(new Date())) return l.items;
+  if (l) store.del('popot-log');
+  return [];
+}
+
+/* ===== Traduction des erreurs techniques en messages clairs ===== */
+function frError(err) {
+  const msg = String((err && (err.message || err.error_description || err.msg)) || err || '');
+  const code = String((err && (err.code || err.error_code)) || '');
+  const status = err && err.status;
+  if (!navigator.onLine) return { kind: 'offline', text: "Pas de connexion internet. Vos ajouts sont gardés sur ce téléphone et seront envoyés dès que le réseau revient." };
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg))
+    return { kind: 'down', text: "Le service ne répond pas. Il est peut-être en pause (après une semaine sans utilisation). Veuillez contacter votre administrateur pour qu'il le réactive." };
+  if (/read-only|quota|exceed|disk full|payment required/i.test(msg) || status === 402)
+    return { kind: 'quota', text: "Cette action n'a pas pu être réalisée car le volume de données est trop important. Veuillez contacter votre administrateur." };
+  if (code === 'anonymous_provider_disabled' || /anonymous sign-ins are disabled/i.test(msg))
+    return { kind: 'config', text: "La connexion automatique n'est pas activée sur la base de données. Veuillez contacter votre administrateur." };
+  if (/code famille inconnu/i.test(msg))
+    return { kind: 'code', text: "Ce code famille n'existe pas. Vérifiez-le et réessayez." };
+  if (code === '42501' || /row-level security|permission denied/i.test(msg))
+    return { kind: 'denied', text: "Action non autorisée pour ce téléphone. Essayez de rejoindre à nouveau la famille avec son code." };
+  if (status === 401 || status === 403 || /jwt/i.test(msg))
+    return { kind: 'auth', text: "La session a expiré. Rechargez la page. Si le problème continue, veuillez contacter votre administrateur." };
+  return { kind: 'other', text: "Une erreur inattendue est survenue. Veuillez réessayer ou contacter votre administrateur." };
+}
+function fail(err, ctx) {
+  const f = frError(err);
+  log(ctx + ' : ' + f.text, err && (err.message || err));
+  toast(f.text, 'err');
+  return f;
+}
+
+/* ===== Messages et fenêtre du bas ===== */
+function toast(text, type) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.className = 'toast on ' + (type || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast'; }, type === 'err' ? 8000 : 2600);
+}
+function openSheet(html) {
+  $('#sheet').innerHTML = html;
+  $('#sheet').classList.add('on');
+  $('#backdrop').classList.add('on');
+  $('#sheet').scrollTop = 0;
+}
+function closeSheet() {
+  $('#sheet').classList.remove('on');
+  $('#backdrop').classList.remove('on');
+  S.form = null;
+}
+function renderBanner() {
+  const parts = [];
+  if (!navigator.onLine || S.offline) parts.push('📴 Hors connexion');
+  if (S.queue.length) parts.push('⏳ ' + S.queue.length + (S.queue.length > 1 ? ' entrées en attente' : ' entrée en attente') + " d'envoi");
+  const b = $('#banner');
+  b.innerHTML = parts.map(p => '<div>' + p + '</div>').join('');
+  b.className = parts.length ? 'banner on' : 'banner';
+}
+
+/* ===== Enfants ===== */
+const childName = c => (c && (c.first_name || c.label)) || '';
+const curChild = () => S.children.find(c => c.id === S.childId) || S.children[0] || null;
+const childNameById = id => childName(S.children.find(c => c.id === id));
+const colorHex = (kind, name) => { const f = (COLORS[kind] || []).find(x => x[0] === name); return f ? f[1] : 'transparent'; };
+
+/* ===== Écrans ===== */
+function viewLoading() { return '<div class="center"><div style="font-size:56px">👶</div><p class="soft">Chargement…</p></div>'; }
+
+function viewError() {
+  return '<div class="center"><div style="font-size:56px">😕</div><h2>Impossible de continuer</h2><p class="soft">' + esc(S.errText) +
+    '</p><button class="btn" data-act="retry">Réessayer</button><button class="btn ghost" data-act="logs">Voir le journal des erreurs</button></div>';
+}
+
+function viewWelcome() {
+  return '<div class="hero"><div class="logo">👶</div><h1>PoPoT</h1><p class="soft">Le suivi de bébé, simple et à deux.</p></div>' +
+    '<section class="card"><h2>Nouvelle famille</h2>' +
+    "<p class=\"soft\">Indiquez le prénom de l'enfant (facultatif). Un code famille sera créé pour inviter l'autre parent.</p>" +
+    '<input id="newName" class="inp" placeholder="Prénom de l\'enfant (facultatif)" autocomplete="off" maxlength="40">' +
+    '<button class="btn" data-act="create">Créer ma famille</button></section>' +
+    '<section class="card"><h2>Rejoindre une famille</h2>' +
+    '<p class="soft">Saisissez le code reçu de l\'autre parent.</p>' +
+    '<input id="joinCode" class="inp code" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16">' +
+    '<button class="btn alt" data-act="join">Rejoindre cette famille</button></section>';
+}
+
+function entryRow(e) {
+  const k = KINDS[e.kind] || { emoji: '•', label: e.kind };
+  const bits = [];
+  if (e.color) bits.push('<span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
+  if (e.texture) bits.push(esc(e.texture));
+  if (e.quantity_drunk != null) bits.push('bu ' + fmtQ(e.quantity_drunk) + ' ml');
+  if (e.quantity_eaten != null) bits.push('mangé ' + fmtQ(e.quantity_eaten) + ' ml');
+  return '<button class="row-item" data-act="open" data-id="' + esc(e.id) + '">' +
+    '<span class="t">' + hhmm(new Date(e.occurred_at)) + '</span><span class="e">' + k.emoji + '</span>' +
+    '<span class="b"><span><b>' + k.label + '</b>' + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</span>' +
+    (bits.length ? '<span class="d">' + bits.join(' · ') + '</span>' : '') +
+    (e.comment ? '<span class="c">« ' + esc(e.comment) + ' »</span>' : '') + '</span></button>';
+}
+
+function viewDashboard() {
+  const c = curChild();
+  const mine = S.today.filter(e => e.child_id === (c && c.id));
+  const stat = k => {
+    const l = mine.filter(e => e.kind === k);
+    return l.length ? l.length + " aujourd'hui · dernier à " + hhmm(new Date(l[0].occurred_at)) : "Aucun aujourd'hui";
+  };
+  const tile = (k, size) => '<button class="tile ' + size + '" style="--c:var(--' + k + ')" data-act="add" data-kind="' + k + '">' +
+    '<span class="em">' + KINDS[k].emoji + '</span><span class="nm">' + KINDS[k].label + '</span><span class="meta">' + esc(stat(k)) + '</span></button>';
+  const tabs = S.children.length > 1
+    ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
+    : '';
+  const recent = mine.slice(0, 6);
+  return '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">' + esc(childName(c)) + '</div></div>' +
+    '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs +
+    '<div class="grid">' + tile('caca', 'big') + tile('biberon', 'big') + '</div>' +
+    '<div class="grid">' + tile('pipi', 'small') + tile('vomi', 'small') + '</div>' +
+    '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>' +
+    '<h3>Derniers ajouts du jour</h3>' +
+    (recent.length ? '<div class="rows">' + recent.map(entryRow).join('') + '</div>' : '<p class="empty">Rien pour le moment. Appuyez sur un bouton pour ajouter une entrée.</p>');
+}
+
+function viewHistory() {
+  const H = S.hist;
+  const kinds = ['all', 'pipi', 'caca', 'vomi', 'biberon'];
+  let html = '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">Historique</div></div>' +
+    '<button class="icon" data-act="back" aria-label="Retour">←</button></header>';
+  if (S.children.length > 1) {
+    html += '<div class="chips"><button class="chip ' + (!H.childId ? 'on' : '') + '" data-act="hchild" data-id="">Tous</button>' +
+      S.children.map(ch => '<button class="chip ' + (H.childId === ch.id ? 'on' : '') + '" data-act="hchild" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>';
+  }
+  html += '<div class="chips">' + kinds.map(k => '<button class="chip ' + (H.kind === k ? 'on' : '') + '" data-act="hkind" data-kind="' + k + '">' +
+    (k === 'all' ? 'Tout' : KINDS[k].emoji + ' ' + KINDS[k].label) + '</button>').join('') + '</div>';
+  html += '<div class="row" style="align-items:center"><input id="hday" class="inp" type="date" value="' + esc(H.day) + '" max="' + dayKey(new Date()) + '" style="margin-top:0">' +
+    (H.day ? '<button class="mini" data-act="hclear">Effacer</button>' : '') + '</div>';
+  if (!H.items.length) {
+    html += '<p class="empty">' + (H.loading ? 'Chargement…' : 'Aucune entrée pour ces filtres.') + '</p>';
+  } else {
+    let last = '';
+    html += '<div class="rows">';
+    H.items.forEach(e => {
+      const d = new Date(e.occurred_at), k = dayKey(d);
+      if (k !== last) { html += '</div><div class="day">' + esc(dayLabel(d)) + '</div><div class="rows">'; last = k; }
+      html += entryRow(e);
+    });
+    html += '</div>';
+    if (H.more) html += '<button class="btn alt" data-act="more">Voir plus</button>';
+  }
+  return html;
+}
+
+function render() {
+  const v = S.view;
+  $('#app').innerHTML = v === 'welcome' ? viewWelcome()
+    : v === 'dashboard' ? viewDashboard()
+    : v === 'history' ? viewHistory()
+    : v === 'error' ? viewError()
+    : viewLoading();
+  renderBanner();
+}
+
+/* ===== Fenêtres : code famille, formulaire, détail, réglages, journal ===== */
+function codeSheet(first) {
+  openSheet('<h2>' + (first ? 'Famille créée 🎉' : 'Code famille') + '</h2>' +
+    '<p class="soft">Partagez ce code avec l\'autre parent : en le saisissant dans l\'application, il rejoint automatiquement votre famille.</p>' +
+    '<div class="bigcode">' + esc(S.code) + '</div>' +
+    '<div class="row"><button class="btn" data-act="share">Partager</button><button class="btn alt" data-act="copy">Copier</button></div>' +
+    '<button class="btn ghost" data-act="close">Fermer</button>');
+}
+
+function formSheet(kind) {
+  const k = KINDS[kind], c = curChild();
+  S.form = { kind: kind, color: null, texture: null };
+  let body = '';
+  if (kind === 'biberon') {
+    body = '<label class="lbl" for="qDrunk">Quantité bue (ml)</label><input id="qDrunk" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 90">' +
+      '<label class="lbl" for="qEaten">Quantité mangée (ml)</label><input id="qEaten" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 30">';
+  } else {
+    body = '<label class="lbl">Couleur</label><div class="swatches">' +
+      COLORS[kind].map(x => '<button type="button" class="sw" data-act="color" data-name="' + esc(x[0]) + '" style="background:' + x[1] + '" aria-label="' + esc(x[0]) + '"></button>').join('') +
+      '</div><div class="soft small" id="colorName">Aucune couleur choisie</div>';
+    if (kind === 'caca') {
+      body += '<label class="lbl">Texture</label><div class="chips" style="margin-top:8px">' +
+        TEXTURES.map(t => '<button type="button" class="chip" data-act="texture" data-name="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>';
+    }
+  }
+  openSheet('<h2>' + k.emoji + ' Ajouter ' + k.art + '</h2>' +
+    (S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '') + body +
+    '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500"></textarea>' +
+    '<label class="lbl" for="when">Heure</label><input id="when" class="inp" type="datetime-local" value="' + inputValue(new Date()) + '">' +
+    '<button class="btn" id="saveBtn" data-act="save">Enregistrer</button><button class="btn ghost" data-act="close">Annuler</button>');
+}
+
+function findEntry(id) { return S.today.find(e => e.id === id) || S.hist.items.find(e => e.id === id); }
+
+function entrySheet(id) {
+  const e = findEntry(id);
+  if (!e) return;
+  const k = KINDS[e.kind], d = new Date(e.occurred_at);
+  const lines = [];
+  if (e.color) lines.push('Couleur : <span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
+  if (e.texture) lines.push('Texture : ' + esc(e.texture));
+  if (e.quantity_drunk != null) lines.push('Quantité bue : ' + fmtQ(e.quantity_drunk) + ' ml');
+  if (e.quantity_eaten != null) lines.push('Quantité mangée : ' + fmtQ(e.quantity_eaten) + ' ml');
+  if (e.comment) lines.push('Commentaire : « ' + esc(e.comment) + ' »');
+  openSheet('<h2>' + k.emoji + ' ' + k.label + '</h2>' +
+    '<p class="soft">' + esc(dayLabel(d)) + ' à ' + hhmm(d) + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</p>' +
+    (lines.length ? lines.map(l => '<div class="kv"><span>' + l + '</span></div>').join('') : '<p class="soft">Aucun détail renseigné.</p>') +
+    '<button class="btn danger" data-act="delete" data-id="' + esc(e.id) + '">Supprimer</button>' +
+    '<button class="btn ghost" data-act="close">Fermer</button>');
+}
+
+function settingsSheet() {
+  openSheet('<h2>Réglages</h2>' +
+    '<div class="kv"><span class="soft">Code famille</span><b class="mono">' + esc(S.code) + '</b></div>' +
+    '<div class="row"><button class="btn" data-act="share">Partager le code</button><button class="btn alt" data-act="copy">Copier</button></div>' +
+    '<h3>Enfants</h3>' +
+    S.children.map(c => '<div class="kv"><span>' + esc(childName(c)) + '</span><button class="mini" data-act="rename" data-id="' + esc(c.id) + '">Modifier le prénom</button></div>').join('') +
+    '<button class="btn alt" data-act="addchild">+ Ajouter un enfant</button>' +
+    '<h3>Aide</h3><button class="btn alt" data-act="logs" style="margin-top:8px">Journal des erreurs du jour</button>' +
+    '<button class="btn danger" data-act="leave">Se déconnecter de cette famille</button>' +
+    '<button class="btn ghost" data-act="close">Fermer</button><p class="soft small" style="text-align:center">PoPoT version ' + VERSION + '</p>');
+}
+
+function logsSheet() {
+  const items = todayLog();
+  openSheet('<h2>Journal des erreurs</h2>' +
+    "<p class=\"soft\">Messages du jour, effacés automatiquement chaque jour. Copiez-les pour les envoyer à l'administrateur.</p>" +
+    (items.length
+      ? '<pre class="log">' + esc(items.map(i => hhmm(new Date(i.t)) + '  ' + i.text + (i.tech ? '  [' + i.tech + ']' : '')).join('\n')) + '</pre><button class="btn" data-act="copylog">Copier le journal</button>'
+      : '<p>Aucune erreur aujourd\'hui 🎉</p>') +
+    '<button class="btn ghost" data-act="close">Fermer</button>');
+}
+
+/* ===== Chargement des données ===== */
+function cacheSave() { store.set('popot-cache', { familyId: S.familyId, code: S.code, children: S.children, childId: S.childId }); }
+
+async function loadChildren() {
+  const r = await S.sb.from('children').select('*').eq('family_id', S.familyId).order('created_at');
+  if (r.error) throw r.error;
+  S.children = r.data || [];
+  if (!S.children.find(c => c.id === S.childId)) S.childId = store.get('popot-child', null);
+  if (!S.children.find(c => c.id === S.childId)) S.childId = S.children.length ? S.children[0].id : null;
+  cacheSave();
+}
+
+async function loadToday() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const r = await S.sb.from('entries').select('*').eq('family_id', S.familyId)
+    .gte('occurred_at', start.toISOString()).order('occurred_at', { ascending: false });
+  if (r.error) throw r.error;
+  const ids = new Set((r.data || []).map(x => x.id));
+  const pending = S.queue.filter(x => x.family_id === S.familyId && new Date(x.occurred_at) >= start && !ids.has(x.id));
+  S.today = (r.data || []).concat(pending).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+}
+
+async function loadHistory(mode) {
+  const H = S.hist;
+  H.loading = true;
+  try {
+    let q = S.sb.from('entries').select('*').eq('family_id', S.familyId);
+    if (H.childId) q = q.eq('child_id', H.childId);
+    if (H.kind !== 'all') q = q.eq('kind', H.kind);
+    if (H.day) {
+      const s = new Date(H.day + 'T00:00:00'), e = new Date(s);
+      e.setDate(e.getDate() + 1);
+      q = q.gte('occurred_at', s.toISOString()).lt('occurred_at', e.toISOString());
+    }
+    const from = mode === 'more' ? H.items.length : 0;
+    const size = mode === 'reload' ? Math.max(PAGE, H.items.length) : PAGE;
+    const r = await q.order('occurred_at', { ascending: false }).range(from, from + size - 1);
+    if (r.error) throw r.error;
+    H.items = mode === 'more' ? H.items.concat(r.data) : r.data;
+    H.more = r.data.length === size;
+  } catch (err) {
+    fail(err, "Chargement de l'historique");
+  }
+  H.loading = false;
+}
+
+async function refreshData() {
+  if (!S.familyId) return;
+  try {
+    await Promise.all([loadChildren(), loadToday()]);
+    if (S.view === 'history') await loadHistory('reload');
+    S.offline = false;
+  } catch (err) {
+    const f = frError(err);
+    if (f.kind === 'offline' || f.kind === 'down') { S.offline = true; log('Actualisation impossible : ' + f.text, err && err.message); }
+    else fail(err, 'Actualisation des données');
+  }
+  render();
+}
+
+function scheduleRefresh() { clearTimeout(rtTimer); rtTimer = setTimeout(refreshData, 350); }
+
+function subscribe() {
+  if (S.channel) S.sb.removeChannel(S.channel);
+  const f = 'family_id=eq.' + S.familyId;
+  S.channel = S.sb.channel('fam-' + S.familyId)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'entries', filter: f }, scheduleRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: f }, scheduleRefresh)
+    .subscribe();
+}
+
+async function enterFamily() {
+  await Promise.all([loadChildren(), loadToday()]);
+  S.view = 'dashboard';
+  S.offline = false;
+  subscribe();
+  flushQueue();
+}
+
+async function loadFamily() {
+  const r = await S.sb.from('family_members').select('family_id, families(id, code)')
+    .eq('user_id', S.user.id).order('joined_at', { ascending: false }).limit(1);
+  if (r.error) throw r.error;
+  if (!r.data || !r.data.length) { S.familyId = null; S.view = 'welcome'; return; }
+  const m = r.data[0], fam = Array.isArray(m.families) ? m.families[0] : m.families;
+  S.familyId = m.family_id;
+  S.code = fam ? fam.code : '?';
+  await enterFamily();
+}
+
+/* ===== Envoi des entrées (avec file d'attente hors connexion) ===== */
+function saveQueue() { store.set('popot-queue', S.queue); }
+
+async function flushQueue() {
+  if (flushing || !S.queue.length || !S.familyId) return;
+  flushing = true;
+  try {
+    for (const row of S.queue.slice()) {
+      const r = await S.sb.from('entries').insert(row);
+      if (r.error && r.error.code !== '23505') {
+        const f = frError(r.error);
+        if (['offline', 'down', 'quota', 'auth'].includes(f.kind)) { log("Envoi différé impossible : " + f.text, r.error.message); break; }
+        log("Une entrée en attente a été abandonnée : " + f.text, r.error.message);
+      }
+      S.queue = S.queue.filter(x => x.id !== row.id);
+      saveQueue();
+    }
+  } finally {
+    flushing = false;
+    renderBanner();
+    refreshData();
+  }
+}
+
+async function addEntry(row) {
+  row.id = uuid();
+  const r = await S.sb.from('entries').insert(row);
+  if (!r.error || r.error.code === '23505') return { ok: true };
+  const f = frError(r.error);
+  if (f.kind === 'offline' || f.kind === 'down') {
+    S.queue.push(row); saveQueue();
+    log('Entrée gardée en attente : ' + f.text, r.error.message);
+    return { ok: true, queued: true };
+  }
+  fail(r.error, "Ajout d'une entrée");
+  return { ok: false };
+}
+
+async function saveForm() {
+  const f = S.form;
+  if (!f || !S.childId) return;
+  const btn = $('#saveBtn');
+  btn.disabled = true;
+  const when = $('#when').value;
+  const d = when ? new Date(when) : new Date();
+  if (isNaN(d.getTime())) { toast('Heure invalide', 'err'); btn.disabled = false; return; }
+  const row = { family_id: S.familyId, child_id: S.childId, kind: f.kind, occurred_at: d.toISOString(), comment: $('#comment').value.trim() || null };
+  if (f.kind === 'biberon') { row.quantity_drunk = numOrNull($('#qDrunk').value); row.quantity_eaten = numOrNull($('#qEaten').value); }
+  else { row.color = f.color; if (f.kind === 'caca') row.texture = f.texture; }
+  const r = await addEntry(row);
+  btn.disabled = false;
+  if (!r.ok) return;
+  closeSheet();
+  if (r.queued) {
+    S.today = [row].concat(S.today).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+    S.offline = !navigator.onLine;
+    toast('Enregistré sur ce téléphone, il sera envoyé dès que la connexion revient');
+    render();
+  } else {
+    toast('Ajouté ✔');
+    await refreshData();
+  }
+}
+
+async function deleteEntry(id) {
+  if (!confirm("Supprimer définitivement cette entrée ?\nCette action est irréversible.")) return;
+  const r = await S.sb.from('entries').delete().eq('id', id);
+  if (r.error) return fail(r.error, "Suppression d'une entrée");
+  closeSheet();
+  toast('Entrée supprimée');
+  await refreshData();
+}
+
+/* ===== Famille : créer, rejoindre, partager, quitter ===== */
+async function createFamily() {
+  const name = $('#newName').value.trim();
+  const r = await S.sb.rpc('create_family', { p_first_name: name || null });
+  if (r.error) return fail(r.error, 'Création de la famille');
+  const row = Array.isArray(r.data) ? r.data[0] : r.data;
+  S.familyId = row.out_family_id;
+  S.code = row.out_code;
+  try { await enterFamily(); } catch (err) { return fail(err, 'Chargement de la famille'); }
+  render();
+  codeSheet(true);
+}
+
+async function joinFamily() {
+  const code = $('#joinCode').value.trim().toUpperCase().replace(/\s+/g, '');
+  if (code.length < 4) return toast('Saisissez le code famille', 'err');
+  const r = await S.sb.rpc('join_family', { p_code: code });
+  if (r.error) return fail(r.error, 'Rejoindre une famille');
+  try { await loadFamily(); } catch (err) { return fail(err, 'Chargement de la famille'); }
+  render();
+  toast('Bienvenue dans la famille ✔');
+}
+
+async function shareCode() {
+  const text = 'Rejoins notre famille sur PoPoT 👶\nCode famille : ' + S.code + '\n' + location.href.split('#')[0];
+  if (navigator.share) {
+    try { await navigator.share({ text: text }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  location.href = 'sms:?&body=' + encodeURIComponent(text);
+}
+
+async function copyText(text, okMsg) {
+  try { await navigator.clipboard.writeText(text); toast(okMsg); }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast(okMsg); } catch (e2) { toast('Copie impossible sur ce téléphone', 'err'); }
+    ta.remove();
+  }
+}
+
+async function leaveFamily() {
+  const extra = S.queue.length ? '\n' + S.queue.length + ' entrée(s) en attente d\'envoi seront perdues.' : '';
+  if (!confirm('Se déconnecter de cette famille sur ce téléphone ?\nVous pourrez la rejoindre à nouveau avec son code.' + extra)) return;
+  if (S.user) {
+    const r = await S.sb.from('family_members').delete().eq('user_id', S.user.id).eq('family_id', S.familyId);
+    if (r.error) return fail(r.error, 'Déconnexion de la famille');
+  }
+  if (S.channel) { S.sb.removeChannel(S.channel); S.channel = null; }
+  S.familyId = null; S.code = null; S.children = []; S.childId = null; S.today = []; S.queue = [];
+  saveQueue(); store.del('popot-cache'); store.del('popot-child');
+  S.view = 'welcome';
+  closeSheet();
+  render();
+}
+
+async function addChild() {
+  const name = prompt("Prénom du nouvel enfant (laisser vide pour rester anonyme)", '');
+  if (name === null) return;
+  const r = await S.sb.from('children').insert({ family_id: S.familyId, first_name: name.trim() || null }).select().single();
+  if (r.error) return fail(r.error, "Ajout d'un enfant");
+  S.childId = r.data.id; store.set('popot-child', S.childId);
+  closeSheet();
+  toast('Enfant ajouté ✔');
+  await refreshData();
+}
+
+async function renameChild(id) {
+  const c = S.children.find(x => x.id === id);
+  if (!c) return;
+  const name = prompt('Prénom de ' + c.label + ' (laisser vide pour rester anonyme)', c.first_name || '');
+  if (name === null) return;
+  const r = await S.sb.from('children').update({ first_name: name.trim() || null }).eq('id', id);
+  if (r.error) return fail(r.error, "Modification d'un prénom");
+  closeSheet();
+  await refreshData();
+}
+
+/* ===== Démarrage ===== */
+async function boot() {
+  S.view = 'loading'; render();
+  try {
+    if (!S.sb) {
+      if (!window.supabase) throw new Error('Failed to fetch (bibliothèque non chargée)');
+      S.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+    }
+    const g = await S.sb.auth.getSession();
+    if (g.error) throw g.error;
+    let session = g.data.session;
+    if (!session) {
+      const a = await S.sb.auth.signInAnonymously();
+      if (a.error) throw a.error;
+      session = a.data.session;
+    }
+    S.user = session.user;
+    await loadFamily();
+  } catch (err) {
+    const f = frError(err), c = store.get('popot-cache', null);
+    log('Démarrage : ' + f.text, err && err.message);
+    if ((f.kind === 'offline' || f.kind === 'down') && c && c.familyId) {
+      S.familyId = c.familyId; S.code = c.code; S.children = c.children || []; S.childId = c.childId;
+      S.view = 'dashboard'; S.offline = true;
+      toast(f.text, 'err');
+    } else {
+      S.view = 'error'; S.errText = f.text;
+    }
+  }
+  render();
+}
+
+/* ===== Clics et saisies ===== */
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest('[data-act]');
+  if (!el) return;
+  const a = el.dataset.act;
+  switch (a) {
+    case 'close': closeSheet(); break;
+    case 'retry': boot(); break;
+    case 'create': el.disabled = true; await createFamily(); el.disabled = false; break;
+    case 'join': el.disabled = true; await joinFamily(); el.disabled = false; break;
+    case 'add':
+      if (!S.childId) { toast("Aucun enfant dans cette famille", 'err'); break; }
+      formSheet(el.dataset.kind); break;
+    case 'child': S.childId = el.dataset.id; store.set('popot-child', S.childId); cacheSave(); render(); break;
+    case 'settings': settingsSheet(); break;
+    case 'history':
+      S.view = 'history';
+      S.hist = { items: [], more: false, loading: true, kind: 'all', childId: S.children.length > 1 ? S.childId : null, day: '' };
+      render(); await loadHistory('fresh'); render(); break;
+    case 'back': S.view = 'dashboard'; render(); break;
+    case 'hchild': S.hist.childId = el.dataset.id || null; render(); await loadHistory('fresh'); render(); break;
+    case 'hkind': S.hist.kind = el.dataset.kind; render(); await loadHistory('fresh'); render(); break;
+    case 'hclear': S.hist.day = ''; render(); await loadHistory('fresh'); render(); break;
+    case 'more': el.disabled = true; await loadHistory('more'); render(); break;
+    case 'color':
+      if (S.form) {
+        S.form.color = S.form.color === el.dataset.name ? null : el.dataset.name;
+        document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.color));
+        $('#colorName').textContent = S.form.color || 'Aucune couleur choisie';
+      }
+      break;
+    case 'texture':
+      if (S.form) {
+        S.form.texture = S.form.texture === el.dataset.name ? null : el.dataset.name;
+        document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.texture));
+      }
+      break;
+    case 'save': await saveForm(); break;
+    case 'open': entrySheet(el.dataset.id); break;
+    case 'delete': await deleteEntry(el.dataset.id); break;
+    case 'share': await shareCode(); break;
+    case 'copy': await copyText(S.code, 'Code copié'); break;
+    case 'logs': logsSheet(); break;
+    case 'copylog': await copyText(todayLog().map(i => hhmm(new Date(i.t)) + ' ' + i.text + (i.tech ? ' [' + i.tech + ']' : '')).join('\n'), 'Journal copié'); break;
+    case 'addchild': await addChild(); break;
+    case 'rename': await renameChild(el.dataset.id); break;
+    case 'leave': await leaveFamily(); break;
+  }
+});
+
+document.addEventListener('change', async ev => {
+  if (ev.target && ev.target.id === 'hday') {
+    S.hist.day = ev.target.value || '';
+    render(); await loadHistory('fresh'); render();
+  }
+});
+
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'joinCode') { ev.preventDefault(); joinFamily(); }
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'newName') { ev.preventDefault(); createFamily(); }
+  if (ev.key === 'Escape') closeSheet();
+});
+
+window.addEventListener('online', () => { renderBanner(); flushQueue(); refreshData(); });
+window.addEventListener('offline', renderBanner);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.familyId) { flushQueue(); refreshData(); } });
+
+todayLog();
+boot();
+})();
+</script>
+</body>
+</html>
