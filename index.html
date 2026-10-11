@@ -89,9 +89,12 @@ textarea.inp{min-height:76px;resize:vertical}
 .hero h1{font-size:34px;font-weight:800;margin-top:6px}
 
 /* choix de couleur */
-.swatches{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0 6px}
-.sw{width:48px;height:48px;border-radius:50%;border:2px solid var(--line);cursor:pointer}
-.sw.on{outline:4px solid var(--accent);outline-offset:2px}
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 6px;margin:8px 0 4px}
+.swb{background:none;border:0;padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;border-radius:14px}
+.sw{width:50px;height:50px;border-radius:50%;border:2px solid var(--line)}
+.swb.on .sw{outline:4px solid var(--accent);outline-offset:2px}
+.swl{font-size:12.5px;color:var(--soft);text-align:center;line-height:1.15}
+.swb.on .swl{color:var(--ink);font-weight:700}
 
 /* listes */
 .rows{display:flex;flex-direction:column;gap:8px;margin-top:8px}
@@ -157,9 +160,10 @@ const KINDS = {
 };
 const COLORS = {
   pipi: [['jaune très clair', '#fbf3b9'], ['jaune', '#f2d544'], ['jaune foncé / orangé', '#e08a1e'], ['rouge', '#d32f2f']],
-  caca: [['jaune moutarde', '#d9a21b'], ['marron', '#7a4a24'], ['vert', '#5b8a3c'], ['noir', '#1f1f1f'], ['rouge', '#d32f2f'], ['blanc / très pâle', '#f1ece0']]
+  caca: [['vert foncé', '#787c1f'], ['vert clair', '#b2c25b'], ['marron', '#b4652d'], ['marron foncé', '#7a3413'],
+         ['jaune moutarde', '#f6d447'], ['gris', '#bba094'], ['rouge', '#e03338'], ['noir', '#2b170d']]
 };
-COLORS.vomi = COLORS.caca;
+COLORS.vomi = [['jaune moutarde', '#d9a21b'], ['marron', '#7a4a24'], ['vert', '#5b8a3c'], ['noir', '#1f1f1f'], ['rouge', '#d32f2f'], ['blanc / très pâle', '#f1ece0']];
 const TEXTURES = ['liquide', 'pâteux', 'boulette', 'granuleux', 'dur'];
 
 /* ===== Petits outils ===== */
@@ -385,8 +389,8 @@ function formSheet(kind) {
       '<label class="lbl" for="qEaten">Quantité mangée (ml)</label><input id="qEaten" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 30">';
   } else {
     body = '<label class="lbl">Couleur</label><div class="swatches">' +
-      COLORS[kind].map(x => '<button type="button" class="sw" data-act="color" data-name="' + esc(x[0]) + '" style="background:' + x[1] + '" aria-label="' + esc(x[0]) + '"></button>').join('') +
-      '</div><div class="soft small" id="colorName">Aucune couleur choisie</div>';
+      COLORS[kind].map(x => '<button type="button" class="swb" data-act="color" data-name="' + esc(x[0]) + '" aria-label="' + esc(x[0]) + '">' +
+        '<span class="sw" style="background:' + x[1] + '"></span><span class="swl">' + esc(x[0]) + '</span></button>').join('') + '</div>';
     if (kind === 'caca') {
       body += '<label class="lbl">Texture</label><div class="chips" style="margin-top:8px">' +
         TEXTURES.map(t => '<button type="button" class="chip" data-act="texture" data-name="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>';
@@ -741,8 +745,7 @@ document.addEventListener('click', async ev => {
     case 'color':
       if (S.form) {
         S.form.color = S.form.color === el.dataset.name ? null : el.dataset.name;
-        document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.color));
-        $('#colorName').textContent = S.form.color || 'Aucune couleur choisie';
+        document.querySelectorAll('.swb').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.color));
       }
       break;
     case 'texture':
