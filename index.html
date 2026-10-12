@@ -64,6 +64,10 @@ button{font:inherit;color:inherit}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;padding:0 10px 6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 .detail{margin-top:12px}
+.chartcard .ref{stroke:var(--temperature);stroke-width:1;stroke-dasharray:4 3;opacity:.8}
+.chartcard .ring{fill:color-mix(in srgb,var(--temperature) 25%,transparent)}
+button.tl{width:100%;border:0;border-left:0;border-right:0;border-bottom:0;background:none;color:inherit;font:inherit;font-size:14px;text-align:left;cursor:pointer;justify-content:space-between}
+button.tl.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .detail h3{margin:0 0 6px}
 .detail .hint{margin:0;text-align:center}
 .dl{display:flex;gap:12px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
@@ -196,7 +200,7 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '2.0';
+const VERSION = '2.1';
 const PAGE = 40;
 
 /* ===== Les choix proposés dans les formulaires ===== */
@@ -433,7 +437,8 @@ function render() {
 const STATS = {
   alim: { title: 'Alimentation', emoji: '🍼', kind: 'biberon' },
   caca: { title: 'Caca', emoji: '💩', kind: 'caca' },
-  pipi: { title: 'Pipi', emoji: '💧', kind: 'pipi' }
+  pipi: { title: 'Pipi', emoji: '💧', kind: 'pipi' },
+  temp: { title: 'Température', emoji: '🌡️', kind: 'temperature' }
 };
 // couleurs classées de la plus grave à la moins grave (sert à départager une égalité)
 const GRAVE = {
@@ -495,7 +500,7 @@ async function loadStat(silent) {
   try {
     let all = [], from = 0;
     for (;;) {
-      const r = await S.sb.from('entries').select('id,occurred_at,color,texture,quantity_drunk,quantity_eaten')
+      const r = await S.sb.from('entries').select('id,occurred_at,color,texture,quantity_drunk,quantity_eaten,temperature,comment')
         .eq('family_id', S.familyId).eq('child_id', S.childId).eq('kind', STATS[st.key].kind)
         .gte('occurred_at', p.start.toISOString()).lt('occurred_at', p.end.toISOString())
         .order('occurred_at', { ascending: true }).range(from, from + 999);
@@ -612,6 +617,50 @@ function statDetail(st, p, B) {
   return html + rows.slice(0, cap).join('') + (rows.length > cap ? '<p class="soft">… et ' + (rows.length - cap) + ' autres</p>' : '');
 }
 
+/* Température : chaque mesure est un point à sa date et heure, deux repères à 36,5 et 37,5 °C */
+function tempCard(st, p) {
+  const W = 360, H = 230, L = 40, R = 14, T = 16, Bm = 28, pw = W - L - R, ph = H - T - Bm;
+  const vals = st.items.map(it => Number(it.temperature)).filter(v => isFinite(v));
+  const lo = Math.floor((Math.min.apply(null, vals.concat([36.5])) - 0.2) * 2) / 2;
+  const hi = Math.ceil((Math.max.apply(null, vals.concat([37.5])) + 0.2) * 2) / 2;
+  const step = hi - lo > 4 ? 1 : 0.5;
+  const Y = v => T + ph - ((v - lo) / (hi - lo)) * ph;
+  const span = p.end - p.start;
+  const X = d => L + ((d - p.start) / span) * pw;
+  let g = '';
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    g += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/>' +
+      '<text x="' + (L - 6) + '" y="' + (Y(v) + 3.5) + '" text-anchor="end">' + fmtQ(v) + '</text>';
+  }
+  [36.5, 37.5].forEach(v => { g += '<line class="ref" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/>'; });
+  for (let i = 0; i < p.n; i++) { const lb = p.label(i); if (lb) g += '<text x="' + (L + (i + 0.5) / p.n * pw) + '" y="' + (H - 9) + '" text-anchor="middle">' + lb + '</text>'; }
+  const pts = st.items.map((it, i) => ({ i: i, x: X(new Date(it.occurred_at)), y: Y(Number(it.temperature)) }))
+    .filter(q => isFinite(q.y) && q.x >= L - 1 && q.x <= W - R + 1);
+  if (pts.length > 1) g += '<polyline class="ln" style="stroke:var(--temperature)" points="' + pts.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join(' ') + '"/>';
+  pts.forEach(q => {
+    if (st.sel === q.i) g += '<circle cx="' + q.x.toFixed(1) + '" cy="' + q.y.toFixed(1) + '" r="9" class="ring"/>';
+    g += '<circle cx="' + q.x.toFixed(1) + '" cy="' + q.y.toFixed(1) + '" r="4.5" class="dt" style="fill:var(--temperature)"/>';
+    g += '<circle cx="' + q.x.toFixed(1) + '" cy="' + q.y.toFixed(1) + '" r="12" class="hit" data-act="spoint" data-i="' + q.i + '"/>';
+  });
+  const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Courbe des températures en degrés Celsius, avec des repères à 36,5 et 37,5">' + g + '</svg>';
+  const nn = st.items.length;
+  const long = it => { const d = new Date(it.occurred_at); return fr(d, { weekday: 'long', day: 'numeric', month: 'long' }) + ' à ' + hhmm(d); };
+  let detail;
+  if (st.sel != null && st.items[st.sel]) {
+    const it = st.items[st.sel];
+    detail = '<h3>' + fmtQ(it.temperature) + ' °C</h3><p class="soft" style="margin:0">' + esc(long(it)) + '</p>' +
+      (it.comment ? '<p style="margin:6px 0 0">« ' + esc(it.comment) + ' »</p>' : '');
+  } else {
+    detail = '<p class="soft hint">' + (nn ? 'Touchez un point de la courbe pour voir la mesure.' : 'Aucune température sur cette période.') + '</p>';
+  }
+  const list = st.items.map((it, i) => ({ it: it, i: i })).reverse().slice(0, 40).map(q =>
+    '<button class="dl tl' + (st.sel === q.i ? ' on' : '') + '" data-act="spoint" data-i="' + q.i + '"><span class="t">' + esc(fr(new Date(q.it.occurred_at), { day: 'numeric', month: 'short' })) + ' ' + hhmm(new Date(q.it.occurred_at)) +
+    '</span><b>' + fmtQ(q.it.temperature) + ' °C</b></button>').join('');
+  return '<div class="chartcard"><div class="legend"><b>' + nn + ' mesure' + (nn > 1 ? 's' : '') + '</b><span><i style="background:var(--temperature)"></i>Température (°C)</span><span>traits : 36,5 et 37,5 °C</span></div>' + svg + '</div>' +
+    '<div class="card detail">' + detail + '</div>' +
+    (list ? '<div class="card detail"><h3>Mesures de la période</h3>' + list + '</div>' : '');
+}
+
 function viewStats() {
   const st = S.stat, cfg = STATS[st.key], p = periodOf(st.scale, st.offset);
   const c = curChild();
@@ -625,6 +674,7 @@ function viewStats() {
   if (!S.childId) return html + '<p class="empty">Aucun enfant dans cette famille.</p>';
   if (st.failed) return html + '<div class="empty">Impossible de charger les courbes. Une connexion est nécessaire.<br><button class="btn alt" data-act="sretry">Réessayer</button></div>';
   if (!st.loaded) return html + '<p class="empty">Chargement…</p>';
+  if (st.key === 'temp') return html + tempCard(st, p);
   const B = statBuckets(st, p);
   let total, legend = '';
   if (st.key === 'alim') {
