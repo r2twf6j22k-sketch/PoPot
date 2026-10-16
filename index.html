@@ -64,6 +64,25 @@ button{font:inherit;color:inherit}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;padding:0 10px 6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 .detail{margin-top:12px}
+.ach{margin-bottom:12px;display:flex;flex-direction:column;gap:8px}
+.ah{display:flex;align-items:center;gap:12px}
+.ah .ae{font-size:30px}
+.ah .at{margin-left:auto;font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.bar{height:10px;border-radius:999px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.small{font-size:13px}
+.cups{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:4px}
+.ci{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;color:var(--soft);font-variant-numeric:tabular-nums}
+.ci.got{color:var(--ink);font-weight:700}
+.cup.lock{filter:grayscale(1);opacity:.28}
+.cele{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);padding:20px}
+.cele.on{display:flex}
+.cele canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+.cbox{position:relative;background:var(--card);border-radius:26px;padding:26px 22px 20px;max-width:360px;width:100%;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;animation:pop .45s cubic-bezier(.2,1.4,.4,1)}
+.cbox h2{margin:4px 0 0;font-size:30px}
+.cbox p{margin:0 0 10px;font-size:17px}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.cbox{animation:none}}
 .chartcard .ref{stroke:var(--temperature);stroke-width:1;stroke-dasharray:4 3;opacity:.8}
 .chartcard .ring{fill:color-mix(in srgb,var(--temperature) 25%,transparent)}
 button.tl{width:100%;border:0;border-left:0;border-right:0;border-bottom:0;background:none;color:inherit;font:inherit;font-size:14px;text-align:left;cursor:pointer;justify-content:space-between}
@@ -200,7 +219,7 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '2.1';
+const VERSION = '3.0';
 const PAGE = 40;
 
 /* ===== Les choix proposés dans les formulaires ===== */
@@ -428,6 +447,7 @@ function render() {
     : v === 'dashboard' ? viewDashboard()
     : v === 'history' ? viewHistory()
     : v === 'stats' && S.stat ? viewStats()
+    : v === 'achv' && S.achv ? viewAchv()
     : v === 'error' ? viewError()
     : viewLoading();
   renderBanner();
@@ -688,13 +708,185 @@ function viewStats() {
     '<div class="card detail">' + statDetail(st, p, B) + '</div>';
 }
 
+/* ===== Succès : coupes pour toute la famille ===== */
+const CUPS = [
+  { name: 'Bois', of: 'de bois', color: '#8b5a2b' }, { name: 'Fer', of: 'de fer', color: '#7d8590' },
+  { name: 'Bronze', of: 'de bronze', color: '#cd7f32' }, { name: 'Argent', of: "d'argent", color: '#b8c2cc' },
+  { name: 'Or', of: "d'or", color: '#f2b705' }, { name: 'Diamant', of: 'de diamant', color: '#38bdf8' },
+  { name: 'Master', of: 'master', color: '#9333ea' }
+];
+const TRACKS = {
+  caca:    { title: 'Caca', emoji: '💩', tiers: [10, 50, 100, 250, 500, 1000, 5000], unit: '', word: n => 'Vous avez déclaré ' + nf(n) + ' cacas' },
+  pipi:    { title: 'Pipi', emoji: '💧', tiers: [25, 100, 250, 500, 1000, 2500, 10000], unit: '', word: n => 'Vous avez déclaré ' + nf(n) + ' pipis' },
+  biberon: { title: 'Biberon', emoji: '🍼', tiers: [5, 25, 100, 250, 500, 1000, 2500], unit: 'L', word: n => 'Bébé a bu ' + nf(n) + ' litres de biberon' },
+  mange:   { title: 'Mangé', emoji: '🥣', tiers: [1, 5, 20, 50, 100, 250, 1000], unit: 'kg', word: n => 'Bébé a mangé ' + nf(n) + ' kilos' }
+};
+const TRACK_KEYS = Object.keys(TRACKS);
+function nf(n) { return Number(n).toLocaleString('fr-FR'); }
+const levelOf = (k, total) => TRACKS[k].tiers.filter(t => total >= t).length;
+
+function cupSvg(i, size, locked) {
+  const c = CUPS[i].color, id = 'cg' + i + '-' + size;
+  const fill = i === 6 ? 'url(#' + id + ')' : c;
+  const defs = i === 6 ? '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9333ea"/><stop offset=".5" stop-color="#ec4899"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>' : '';
+  const extra = i === 5 ? '<path d="M12 6.5l1 1.6-1 1.6-1-1.6z" fill="#fff" opacity=".85"/>' : i === 6 ? '<path d="M12 5l.9 1.9 2.1.3-1.5 1.5.4 2.1L12 9.8 10.1 10.8l.4-2.1L9 7.2l2.1-.3z" fill="#fff" opacity=".9"/>' : '';
+  return '<svg class="cup' + (locked ? ' lock' : '') + '" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" aria-hidden="true">' + defs +
+    '<path d="M7 3h10v6a5 5 0 0 1-10 0z" fill="' + fill + '"/>' +
+    '<path d="M7 5H4v2a3 3 0 0 0 3 3M17 5h3v2a3 3 0 0 1-3 3" fill="none" stroke="' + (i === 6 ? '#ec4899' : c) + '" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<path d="M11 14h2v3h-2z" fill="' + fill + '"/><rect x="8" y="17" width="8" height="3.2" rx="1.2" fill="' + fill + '"/>' + extra + '</svg>';
+}
+
+async function fetchTotals(keys) {
+  const out = {};
+  for (const k of keys) {
+    if (k === 'caca' || k === 'pipi') {
+      const r = await S.sb.from('entries').select('id', { count: 'exact', head: true }).eq('family_id', S.familyId).eq('kind', k);
+      if (r.error) throw r.error;
+      out[k] = r.count || 0;
+    }
+  }
+  if (keys.indexOf('biberon') > -1 || keys.indexOf('mange') > -1) {
+    let ml = 0, g = 0, from = 0;
+    for (;;) {
+      const r = await S.sb.from('entries').select('quantity_drunk,quantity_eaten').eq('family_id', S.familyId).eq('kind', 'biberon')
+        .order('occurred_at', { ascending: true }).range(from, from + 999);
+      if (r.error) throw r.error;
+      r.data.forEach(e => { ml += Number(e.quantity_drunk) || 0; g += Number(e.quantity_eaten) || 0; });
+      if (r.data.length < 1000) break;
+      from += 1000;
+    }
+    out.biberon = ml / 1000; out.mange = g / 1000;
+  }
+  return out;
+}
+
+// compare avec les coupes déjà connues sur ce téléphone : fête une nouvelle coupe, retire en silence une coupe perdue
+function applyLevels(totals) {
+  const key = 'popot-ach-' + S.familyId, first = store.get(key, null) === null;
+  const saved = store.get(key, null) || {};
+  Object.keys(totals).forEach(k => {
+    const L = levelOf(k, totals[k]);
+    if (!first && saved[k] !== undefined && L > saved[k]) celebrate(k, L);
+    saved[k] = L;
+  });
+  store.set(key, saved);
+}
+let achBusy = false, achLast = 0;
+async function checkAch(keys, force) {
+  if (!S.familyId || achBusy || !navigator.onLine) return;
+  if (!force && Date.now() - achLast < 15000) return;
+  achBusy = true; achLast = Date.now();
+  try { applyLevels(await fetchTotals(keys || TRACK_KEYS)); }
+  catch (e) { log('Succès : calcul impossible', e && e.message); }
+  achBusy = false;
+}
+const achKeysFor = kind => kind === 'caca' ? ['caca'] : kind === 'pipi' ? ['pipi'] : kind === 'biberon' ? ['biberon', 'mange'] : [];
+
+/* Fête : confettis et champagne */
+let celeQueue = [], celeOn = false, fxRaf = 0;
+function celebrate(k, L) { celeQueue.push({ k: k, L: L }); if (!celeOn) showCele(); }
+function showCele() {
+  const q = celeQueue.shift();
+  if (!q) { celeOn = false; return; }
+  celeOn = true;
+  const T = TRACKS[q.k], cup = CUPS[q.L - 1], tier = T.tiers[q.L - 1];
+  const msg = q.L === 7 ? T.word(tier) + ' : coupe MASTER, un exploit presque impossible !' : T.word(tier) + ' : coupe ' + cup.of + ' !';
+  let el = $('#celebrate');
+  if (!el) { el = document.createElement('div'); el.id = 'celebrate'; el.className = 'cele'; document.body.appendChild(el); }
+  el.innerHTML = '<div class="cbox" role="dialog" aria-modal="true">' + cupSvg(q.L - 1, 120, false) + '<h2>Bravo !</h2><p>' + esc(msg) + '</p>' +
+    '<button class="btn" data-act="celeclose">Super !</button></div><canvas id="fx" aria-hidden="true"></canvas>';
+  el.classList.add('on');
+  launchFx($('#fx'));
+}
+function closeCele() {
+  cancelAnimationFrame(fxRaf);
+  const el = $('#celebrate');
+  if (el) { el.classList.remove('on'); el.innerHTML = ''; }
+  setTimeout(showCele, 250);
+}
+function launchFx(cv) {
+  if (!cv || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  const dpr = window.devicePixelRatio || 1, W = innerWidth, H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d'); if (!ctx) return;
+  ctx.scale(dpr, dpr);
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const cols = ['#ff4d6d', '#ffd60a', '#4cc9f0', '#80ed99', '#b388ff', '#ff9f1c'], gold = ['#fff3b0', '#ffe066', '#ffffff', '#ffd166'];
+  const parts = [];
+  for (let i = 0; i < 150; i++) parts.push({ t: 'c', x: rnd(0, W), y: rnd(-H * .6, 0), vx: rnd(-1.5, 1.5), vy: rnd(2, 5), s: rnd(6, 11), r: rnd(0, 6), vr: rnd(-.2, .2), c: cols[i % cols.length], life: 1 });
+  const t0 = performance.now();
+  function frame(now) {
+    const t = (now - t0) / 1000;
+    ctx.clearRect(0, 0, W, H);
+    if (t < 2.4) {
+      for (let side = 0; side < 2; side++) {
+        const dir = side ? -1 : 1, x0 = side ? W - 34 : 34, y0 = H - 46;
+        for (let i = 0; i < 7; i++) {
+          const a = rnd(-1.25, -0.8), sp = rnd(13, 21);
+          parts.push({ t: 'b', x: x0, y: y0, vx: Math.cos(a) * sp * dir * .7 + (dir * 1.5), vy: Math.sin(a) * sp, s: rnd(2, 5.5), c: gold[(Math.random() * 4) | 0], life: 1 });
+        }
+        ctx.save(); ctx.translate(x0, y0 + 6); ctx.rotate(dir * -0.6); ctx.font = '54px serif'; ctx.textAlign = 'center'; ctx.fillText('🍾', 0, 0); ctx.restore();
+      }
+    }
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      p.x += p.vx; p.y += p.vy;
+      if (p.t === 'c') { p.vy = Math.min(p.vy + .06, 5.5); p.r += p.vr; p.x += Math.sin(p.y / 30) * .8;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 3, p.s, p.s * .6); ctx.restore();
+        if (p.y > H + 20) parts.splice(i, 1);
+      } else { p.vy += .42; p.life -= .011; ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, 6.3); ctx.fill(); ctx.globalAlpha = 1;
+        if (p.life <= 0 || p.y > H + 20) parts.splice(i, 1); }
+    }
+    if (t < 9 && (parts.length || t < 2.4)) fxRaf = requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, H);
+  }
+  fxRaf = requestAnimationFrame(frame);
+}
+
+/* Page Succès */
+async function openAchv() {
+  S.achv = { loaded: false, failed: false, totals: {} };
+  S.view = 'achv'; closeMenu(); render();
+  await loadAchv();
+}
+async function loadAchv(silent) {
+  const a = S.achv; if (!a) return;
+  try {
+    const totals = await fetchTotals(TRACK_KEYS);
+    if (S.achv !== a) return;
+    a.totals = totals; a.loaded = true; a.failed = false;
+    applyLevels(totals);
+  } catch (err) { if (S.achv !== a) return; a.failed = true; fail(err, 'Chargement des succès'); }
+  render();
+}
+function viewAchv() {
+  const a = S.achv;
+  let html = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button>' +
+    '<div><div class="hi">Pour toute la famille</div><div class="sub">🏆 Succès</div></div></div></header>';
+  if (a.failed) return html + '<div class="empty">Impossible de charger les succès. Une connexion est nécessaire.<br><button class="btn alt" data-act="aretry">Réessayer</button></div>';
+  if (!a.loaded) return html + '<p class="empty">Chargement…</p>';
+  return html + TRACK_KEYS.map(k => {
+    const T = TRACKS[k], total = a.totals[k] || 0, L = levelOf(k, total);
+    const prev = L ? T.tiers[L - 1] : 0, next = T.tiers[L];
+    const fmtT = v => nf(Math.round(v * 10) / 10) + (T.unit ? ' ' + T.unit : '');
+    const totalTxt = T.unit ? nf(Math.round(total * 10) / 10) + ' ' + T.unit : nf(total);
+    const pct = next ? Math.min(100, Math.max(0, (total - prev) / (next - prev) * 100)) : 100;
+    const cups = CUPS.map((c, i) => '<div class="ci' + (i < L ? ' got' : '') + '">' + cupSvg(i, 34, i >= L) + '<span>' + esc(fmtT(T.tiers[i])) + '</span></div>').join('');
+    return '<section class="card ach"><div class="ah"><span class="ae">' + T.emoji + '</span><div><b>' + T.title + '</b><div class="soft">' +
+      (L ? 'Coupe ' + esc(CUPS[L - 1].name.toLowerCase()) : 'Pas encore de coupe') + '</div></div><div class="at">' + esc(totalTxt) + '</div></div>' +
+      '<div class="bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+      '<div class="soft small">' + (next ? 'Encore ' + esc(fmtT(Math.max(0, next - total))) + ' pour la coupe ' + esc(CUPS[L].name.toLowerCase()) : 'Tous les paliers sont atteints, bravo !') + '</div>' +
+      '<div class="cups">' + cups + '</div></section>';
+  }).join('');
+}
+
 /* ===== Menu burger ===== */
 function drawerHtml() {
   const on = k => (S.view === 'stats' && S.stat && S.stat.key === k) ? ' on' : '';
   return '<div class="dh">PoPoT</div>' +
     '<button class="mi' + (S.view === 'dashboard' ? ' on' : '') + '" data-act="gohome">🏠 Accueil</button>' +
     '<div class="mt">Suivi dans le temps</div>' +
-    Object.keys(STATS).map(k => '<button class="mi sub' + on(k) + '" data-act="stat" data-key="' + k + '">' + STATS[k].emoji + ' ' + STATS[k].title + '</button>').join('');
+    Object.keys(STATS).map(k => '<button class="mi sub' + on(k) + '" data-act="stat" data-key="' + k + '">' + STATS[k].emoji + ' ' + STATS[k].title + '</button>').join('') +
+    '<div class="mt">Et aussi</div><button class="mi sub' + (S.view === 'achv' ? ' on' : '') + '" data-act="achv">🏆 Succès</button>';
 }
 function openMenu() { $('#drawer').innerHTML = drawerHtml(); $('#drawer').classList.add('on'); $('#dbackdrop').classList.add('on'); }
 function closeMenu() { $('#drawer').classList.remove('on'); $('#dbackdrop').classList.remove('on'); }
@@ -932,6 +1124,8 @@ async function refreshData() {
     await Promise.all([loadChildren(), loadToday()]);
     if (S.view === 'history') await loadHistory('reload');
     if (S.view === 'stats') await loadStat(true);
+    if (S.view === 'achv') loadAchv(true);
+    checkAch();
     S.offline = false;
   } catch (err) {
     const f = frError(err);
@@ -960,6 +1154,7 @@ async function enterFamily() {
   subscribe();
   flushQueue();
   cleanOldPhotos();
+  checkAch(TRACK_KEYS, true);
 }
 
 async function loadFamily() {
@@ -1055,6 +1250,7 @@ async function saveForm() {
   } else {
     if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
     await refreshData();
+    checkAch(achKeysFor(row.kind), true);
   }
 }
 
@@ -1089,6 +1285,7 @@ async function saveEdit(f, row) {
   closeSheet();
   if (photoNote) toast(photoNote, 'err'); else toast('Modifié ✔');
   await refreshData();
+  checkAch(achKeysFor(row.kind), true);
 }
 
 async function deleteEntry(id) {
@@ -1100,6 +1297,7 @@ async function deleteEntry(id) {
   closeSheet();
   toast('Entrée supprimée');
   await refreshData();
+  if (old) checkAch(achKeysFor(old.kind), true);
 }
 
 /* ===== Famille : créer, rejoindre, partager, quitter ===== */
@@ -1256,6 +1454,9 @@ document.addEventListener('click', async ev => {
       if (S.view === 'stats') { S.stat.sel = null; await loadStat(); }
       break;
     case 'menu': openMenu(); break;
+    case 'achv': await openAchv(); break;
+    case 'aretry': await loadAchv(); break;
+    case 'celeclose': closeCele(); break;
     case 'menuclose': closeMenu(); break;
     case 'gohome': closeMenu(); S.view = 'dashboard'; render(); break;
     case 'stat': await openStat(el.dataset.key); break;
