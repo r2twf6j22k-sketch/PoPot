@@ -113,6 +113,30 @@ button.tl.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .tile:active{transform:scale(.96)}
 .tile.big{height:178px}
 .grid .wide{grid-column:1/-1}
+#app.full{display:flex;flex-direction:column;min-height:100dvh;padding-bottom:14px}
+.mosaic{flex:1;min-height:360px;display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
+.mrow{display:flex;gap:10px;min-height:0;min-width:0}
+.mosaic .tile{container-type:size;height:auto;min-width:0;min-height:64px;padding:6px;overflow:hidden}
+.mosaic .tile .em{font-size:clamp(24px,40cqmin,110px)}
+.mosaic .tile .nm{font-size:clamp(12px,11cqmin,24px)}
+.mosaic .tile .meta{font-size:clamp(10px,6cqmin,13px)}
+@container (max-height:110px){.mosaic .tile .meta{display:none}}
+@container (max-height:80px){.mosaic .tile .em{font-size:26px}}
+.tile .em2{font-size:46px;letter-spacing:-6px}
+.sw2{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0}
+.sw2 b{display:block}
+.tgl{width:54px;height:32px;border-radius:999px;border:0;background:var(--line);position:relative;cursor:pointer;flex:none}
+.tgl::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;transition:left .15s ease;box-shadow:0 1px 3px #0004}
+.tgl.on{background:var(--accent)}.tgl.on::after{left:25px}
+.info{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--soft);background:none;color:var(--soft);font-weight:700;font-size:13px;line-height:1;cursor:pointer;margin-left:6px;padding:0}
+.tip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--soft);margin:-2px 0 8px}
+.parts{display:flex;gap:10px;margin:12px 0 4px}
+.part{flex:1;border:2.5px solid var(--line);background:var(--card);border-radius:16px;padding:12px 8px;font-weight:800;font-size:16px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px}
+.part span{font-size:30px;line-height:1}
+.part small{font-weight:600;color:var(--soft);font-size:12px}
+.part.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,var(--card))}
+.part.on small{color:var(--ink)}
+.sect{margin-top:4px}
 .tile.small{height:108px}
 .tile .em{font-size:60px;line-height:1}
 .tile.small .em{font-size:34px}
@@ -219,13 +243,14 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '3.0';
+const VERSION = '3.1';
 const PAGE = 40;
 
 /* ===== Les choix proposés dans les formulaires ===== */
 const KINDS = {
   pipi:    { emoji: '💧', label: 'Pipi',    art: 'un pipi' },
   caca:    { emoji: '💩', label: 'Caca',    art: 'un caca' },
+  couche:  { emoji: '💩💧', label: 'Couche', art: 'une couche' },
   vomi:    { emoji: '🤢', label: 'Vomi',    art: 'un vomi' },
   biberon: { emoji: '🍼', label: 'Alimentation', art: 'une alimentation' },
   temperature: { emoji: '🌡️', label: 'Température', art: 'une température' }
@@ -265,6 +290,23 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage indisponible */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* rien */ } }
 };
+
+/* ===== Réglage « tuiles adaptatives » (propre à chaque téléphone) ===== */
+const adaptiveOn = () => store.get('popot-adaptive', false) === true;
+const usageKey = () => 'popot-usage-' + S.familyId + '-' + S.childId;
+async function loadUsage() {
+  if (!S.familyId || !S.childId || !adaptiveOn()) return;
+  S.usage = store.get(usageKey(), null) || S.usage || null;
+  if (!navigator.onLine) return;
+  try {
+    const since = new Date(Date.now() - 10 * 864e5).toISOString();
+    const r = await S.sb.from('entries').select('kind').eq('family_id', S.familyId).eq('child_id', S.childId).gte('occurred_at', since).limit(5000);
+    if (r.error || !r.data) return;
+    const u = {};
+    r.data.forEach(x => { u[x.kind] = (u[x.kind] || 0) + 1; });
+    S.usage = u; store.set(usageKey(), u);
+  } catch (e) { /* on garde les derniers chiffres connus */ }
+}
 
 /* ===== État de l'application ===== */
 const S = {
@@ -393,20 +435,39 @@ function viewDashboard() {
   const c = curChild();
   const mine = S.today.filter(e => e.child_id === (c && c.id));
   const stat = k => {
+    if (k === 'couche') {
+      const l = mine.filter(e => e.kind === 'pipi' || e.kind === 'caca');
+      if (!l.length) return "Aucune aujourd'hui";
+      const np = l.filter(e => e.kind === 'pipi').length, nc = l.length - np;
+      return np + ' pipi' + (np > 1 ? 's' : '') + ' · ' + nc + ' caca' + (nc > 1 ? 's' : '') + ' · dernière à ' + hhmm(new Date(l[0].occurred_at));
+    }
     const l = mine.filter(e => e.kind === k);
     return l.length ? l.length + " aujourd'hui · dernier à " + hhmm(new Date(l[0].occurred_at)) : "Aucun aujourd'hui";
   };
-  const tile = (k, size) => '<button class="tile ' + size + '" style="--c:var(--' + k + ')" data-act="add" data-kind="' + k + '">' +
-    '<span class="em">' + KINDS[k].emoji + '</span><span class="nm">' + KINDS[k].label + '</span><span class="meta">' + esc(stat(k)) + '</span></button>';
+  const emo = k => k === 'couche' ? '<span class="em em2">💩💧</span>' : '<span class="em">' + KINDS[k].emoji + '</span>';
+  const tile = (k, size, style) => '<button class="tile ' + size + '" style="--c:var(--' + (k === 'couche' ? 'caca' : k) + ');' + (style || '') + '" data-act="add" data-kind="' + k + '">' +
+    emo(k) + '<span class="nm">' + KINDS[k].label + '</span><span class="meta">' + esc(stat(k)) + '</span></button>';
   const tabs = S.children.length > 1
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
     : '';
+  const head = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button><div><div class="hi">PoPoT</div><div class="sub">' + esc(childName(c)) + '</div></div></div>' +
+    '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs;
+  if (adaptiveOn()) {
+    const u = S.usage || {};
+    const raw = { couche: (u.pipi || 0) + (u.caca || 0), biberon: u.biberon || 0, vomi: u.vomi || 0, temperature: u.temperature || 0 };
+    const mx = Math.max(raw.couche, raw.biberon, raw.vomi, raw.temperature);
+    const w = k => Math.round((raw[k] + 0.2 * mx + 1) * 100) / 100;
+    const wa = w('biberon'), wv = w('vomi');
+    return head + '<div class="mosaic">' +
+      tile('couche', '', 'flex:' + w('couche') + ' 1 0') +
+      '<div class="mrow" style="flex:' + Math.max(wa, wv) + ' 1 0">' + tile('biberon', '', 'flex:' + wa + ' 1 0') + tile('vomi', '', 'flex:' + wv + ' 1 0') + '</div>' +
+      tile('temperature', '', 'flex:' + w('temperature') + ' 1 0') + '</div>' +
+      '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>';
+  }
   const recent = ['biberon', 'caca', 'vomi', 'pipi', 'temperature'].map(k => mine.find(e => e.kind === k)).filter(Boolean);
-  return '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button><div><div class="hi">PoPoT</div><div class="sub">' + esc(childName(c)) + '</div></div></div>' +
-    '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs +
-    '<div class="grid">' + tile('caca', 'big') + tile('biberon', 'big') + '</div>' +
-    '<div class="grid">' + tile('pipi', 'small') + tile('vomi', 'small') + '</div>' +
-    '<div class="grid">' + tile('temperature', 'small wide') + '</div>' +
+  return head +
+    '<div class="grid">' + tile('couche', 'big') + tile('biberon', 'big') + '</div>' +
+    '<div class="grid">' + tile('vomi', 'small') + tile('temperature', 'small') + '</div>' +
     '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>' +
     '<h3>Derniers ajouts du jour</h3>' +
     (recent.length ? '<div class="rows">' + recent.map(entryRow).join('') + '</div>' : '<p class="empty">Rien pour le moment. Appuyez sur un bouton pour ajouter une entrée.</p>');
@@ -450,6 +511,7 @@ function render() {
     : v === 'achv' && S.achv ? viewAchv()
     : v === 'error' ? viewError()
     : viewLoading();
+  $('#app').className = (v === 'dashboard' && adaptiveOn()) ? 'full' : '';
   renderBanner();
 }
 
@@ -681,13 +743,14 @@ function tempCard(st, p) {
     (list ? '<div class="card detail"><h3>Mesures de la période</h3>' + list + '</div>' : '');
 }
 
+const HOME_BTN = '<button class="icon" data-act="gohome" aria-label="Retour à l\'accueil">🏠</button>';
 function viewStats() {
   const st = S.stat, cfg = STATS[st.key], p = periodOf(st.scale, st.offset);
   const c = curChild();
   const tabs = S.children.length > 1
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>' : '';
   let html = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button>' +
-    '<div><div class="hi">Suivi dans le temps</div><div class="sub">' + cfg.emoji + ' ' + cfg.title + '</div></div></div></header>' + tabs +
+    '<div><div class="hi">Suivi dans le temps</div><div class="sub">' + cfg.emoji + ' ' + cfg.title + '</div></div></div>' + HOME_BTN + '</header>' + tabs +
     '<div class="chips">' + SCALES.map(s => '<button class="chip ' + (st.scale === s[0] ? 'on' : '') + '" data-act="sscale" data-s="' + s[0] + '">' + s[1] + '</button>').join('') + '</div>' +
     '<div class="pnav"><button class="icon sm" data-act="sprev" aria-label="Période précédente">◀</button><div class="ptitle">' + esc(p.title) + '</div>' +
     '<button class="icon sm" data-act="snext" aria-label="Période suivante"' + (st.offset >= 0 ? ' disabled' : '') + '>▶</button></div>';
@@ -861,7 +924,7 @@ async function loadAchv(silent) {
 function viewAchv() {
   const a = S.achv;
   let html = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button>' +
-    '<div><div class="hi">Pour toute la famille</div><div class="sub">🏆 Succès</div></div></div></header>';
+    '<div><div class="hi">Pour toute la famille</div><div class="sub">🏆 Succès</div></div></div>' + HOME_BTN + '</header>';
   if (a.failed) return html + '<div class="empty">Impossible de charger les succès. Une connexion est nécessaire.<br><button class="btn alt" data-act="aretry">Réessayer</button></div>';
   if (!a.loaded) return html + '<p class="empty">Chargement…</p>';
   return html + TRACK_KEYS.map(k => {
@@ -972,7 +1035,7 @@ async function cleanOldPhotos() {
       .not('photo_path', 'is', null).lt('created_at', limit).limit(50);
     if (r.error || !r.data || !r.data.length) return;
     await S.sb.storage.from('photos').remove(r.data.map(x => x.photo_path));
-    for (const x of r.data) await S.sb.from('entries').update({ photo_path: null }).eq('id', x.id);
+    for (const p of Array.from(new Set(r.data.map(x => x.photo_path)))) await S.sb.from('entries').update({ photo_path: null }).eq('photo_path', p);
     log('Info : ' + r.data.length + ' photo(s) de plus de 10 jours supprimée(s)');
   } catch (e) { log('Nettoyage des photos impossible', e && e.message); }
 }
@@ -985,6 +1048,7 @@ function paintLevel() {
 }
 
 function formSheet(kind, entry) {
+  if (kind === 'couche') return coucheSheet();
   S.photo = null;
   const k = KINDS[kind], c = entry ? (S.children.find(x => x.id === entry.child_id) || curChild()) : curChild();
   S.form = { kind: kind, color: entry ? entry.color : (kind === 'vomi' ? 'blanc' : null), texture: entry && kind === 'caca' ? entry.texture : null,
@@ -1021,6 +1085,41 @@ function formSheet(kind, entry) {
   paintLevel();
 }
 
+/* Formulaire « Couche » : pipi et/ou caca en une seule fois */
+function swatchesHtml(kind, act) {
+  return '<div class="swatches">' + COLORS[kind].map(x => '<button type="button" class="swb" data-act="' + act + '" data-name="' + esc(x[0]) + '" aria-label="' + esc(x[0]) + '">' +
+    '<span class="sw" style="background:' + x[1] + '"></span><span class="swl">' + esc(x[0]) + '</span></button>').join('') + '</div>';
+}
+function coucheSheet() {
+  S.photo = null;
+  const c = curChild();
+  S.form = { kind: 'couche', pipi: false, caca: false, pipiColor: null, cacaColor: null, texture: null, editId: null, photoPath: null, photoGone: false };
+  openSheet('<h2>💩💧 Ajouter une couche</h2>' +
+    (S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '') +
+    '<div class="parts"><button type="button" class="part" id="partPipi" data-act="part" data-part="pipi" style="--c:var(--pipi)"><span>💧</span>Pipi<small>non</small></button>' +
+    '<button type="button" class="part" id="partCaca" data-act="part" data-part="caca" style="--c:var(--caca)"><span>💩</span>Caca<small>non</small></button></div>' +
+    '<div class="sect" id="secPipi" hidden><label class="lbl">Pipi : couleur</label>' + swatchesHtml('pipi', 'pcolor') + '</div>' +
+    '<div class="sect" id="secCaca" hidden><label class="lbl">Caca : couleur</label>' + swatchesHtml('caca', 'ccolor') +
+    '<label class="lbl">Caca : texture</label><div class="chips" style="margin-top:8px">' + TEXTURES.map(t => '<button type="button" class="chip" data-act="texture" data-name="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div></div>' +
+    '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500"></textarea>' +
+    '<label class="lbl">Photo (facultatif)</label><div id="photoBox">' + photoPicker() + '</div>' +
+    '<label class="lbl" for="when">Heure</label><input id="when" class="inp" type="datetime-local" value="' + inputValue(new Date()) + '">' +
+    '<button class="btn" id="saveBtn" data-act="save">Enregistrer</button><button class="btn ghost" data-act="close">Annuler</button>');
+}
+function paintCouche() {
+  const f = S.form;
+  [['pipi', '#partPipi', '#secPipi'], ['caca', '#partCaca', '#secCaca']].forEach(x => {
+    const on = f[x[0]], b = $(x[1]);
+    if (!b) return;
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.querySelector('small').textContent = on ? 'oui' : 'non';
+    $(x[2]).hidden = !on;
+  });
+  document.querySelectorAll('[data-act="pcolor"]').forEach(b => b.classList.toggle('on', b.dataset.name === f.pipiColor));
+  document.querySelectorAll('[data-act="ccolor"]').forEach(b => b.classList.toggle('on', b.dataset.name === f.cacaColor));
+  document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === f.texture));
+}
+
 function findEntry(id) { return S.today.find(e => e.id === id) || S.hist.items.find(e => e.id === id); }
 
 function entrySheet(id) {
@@ -1054,6 +1153,9 @@ function settingsSheet() {
   openSheet('<h2>Réglages</h2>' +
     '<div class="kv"><span class="soft">Code famille</span><b class="mono">' + esc(S.code) + '</b></div>' +
     '<div class="row"><button class="btn" data-act="share">Partager le code</button><button class="btn alt" data-act="copy">Copier</button></div>' +
+    '<h3>Affichage</h3><div class="sw2"><div><b>Tuiles adaptatives<button class="info" data-act="tip" aria-label="Informations">i</button></b></div>' +
+    '<button class="tgl' + (adaptiveOn() ? ' on' : '') + '" data-act="adaptive" role="switch" aria-checked="' + adaptiveOn() + '" aria-label="Tuiles adaptatives"></button></div>' +
+    '<div class="tip" id="tip" hidden>Les tuiles de l\'accueil se redimensionnent selon ce que vous utilisez le plus ces 10 derniers jours, et remplissent tout l\'écran. Cette option ne concerne que ce téléphone. Désactivée, l\'accueil reste comme d\'habitude.</div>' +
     '<h3>Enfants</h3>' +
     S.children.map(c => '<div class="kv"><span>' + esc(childName(c)) + '</span><button class="mini" data-act="rename" data-id="' + esc(c.id) + '">Modifier le prénom</button></div>').join('') +
     '<button class="btn alt" data-act="addchild">+ Ajouter un enfant</button>' +
@@ -1122,6 +1224,7 @@ async function refreshData() {
   if (!S.familyId) return;
   try {
     await Promise.all([loadChildren(), loadToday()]);
+    if (adaptiveOn()) await loadUsage();
     if (S.view === 'history') await loadHistory('reload');
     if (S.view === 'stats') await loadStat(true);
     if (S.view === 'achv') loadAchv(true);
@@ -1149,6 +1252,7 @@ function subscribe() {
 async function enterFamily() {
   if (S.code && S.code !== '?') store.set('popot-code', S.code);
   await Promise.all([loadChildren(), loadToday()]);
+  await loadUsage();
   S.view = 'dashboard';
   S.offline = false;
   subscribe();
@@ -1215,6 +1319,7 @@ async function saveForm() {
   const d = when ? new Date(when) : new Date();
   if (isNaN(d.getTime())) { toast('Heure invalide', 'err'); btn.disabled = false; return; }
   const row = { family_id: S.familyId, child_id: S.childId, kind: f.kind, occurred_at: d.toISOString(), comment: $('#comment').value.trim() || null };
+  if (f.kind === 'couche') { await saveCouche(f, row, btn); return; }
   if (f.kind === 'temperature') {
     const tv = numOrNull($('#qTemp').value);
     if (tv == null || tv < 30 || tv > 45) { toast('Saisissez une température entre 30 et 45 °C (ex. 37,5)', 'err'); btn.disabled = false; return; }
@@ -1254,6 +1359,54 @@ async function saveForm() {
   }
 }
 
+/* Couche : crée un pipi et/ou un caca, avec la même heure, le même commentaire et la même photo */
+async function saveCouche(f, base, btn) {
+  if (!f.pipi && !f.caca) { toast('Cochez au moins Pipi ou Caca', 'err'); btn.disabled = false; return; }
+  let photoNote = null;
+  if (S.photo) {
+    if (!navigator.onLine) photoNote = "Hors connexion : l'entrée est enregistrée sans la photo";
+    else {
+      const path = S.familyId + '/' + uuid() + '.jpg';
+      const perr = await uploadPhoto(path, S.photo.blob);
+      if (perr) { log('Photo non envoyée : ' + frError(perr).text, perr.message); photoNote = "La photo n'a pas pu être envoyée (voir le journal), l'entrée est enregistrée sans elle"; }
+      else base.photo_path = path;
+    }
+  }
+  const rows = [];
+  if (f.pipi) rows.push(Object.assign({}, base, { kind: 'pipi', color: f.pipiColor }));
+  if (f.caca) rows.push(Object.assign({}, base, { kind: 'caca', color: f.cacaColor, texture: f.texture }));
+  let okAny = false, queued = false, failed = false;
+  for (const r of rows) {
+    const res = await addEntry(r);
+    if (res.ok) { okAny = true; if (res.queued) queued = true; } else failed = true;
+  }
+  btn.disabled = false;
+  if (!okAny) { if (base.photo_path) S.sb.storage.from('photos').remove([base.photo_path]); return; }
+  setPhoto(null);
+  closeSheet();
+  if (queued) {
+    S.today = rows.concat(S.today).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+    S.offline = !navigator.onLine;
+    toast('Enregistré sur ce téléphone, il sera envoyé dès que la connexion revient');
+    render();
+  } else {
+    if (failed) toast("Une partie de la couche n'a pas pu être enregistrée (voir le journal)", 'err');
+    else if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
+    await refreshData();
+    checkAch(['pipi', 'caca'].filter(k => f[k]), true);
+  }
+}
+
+/* Une photo partagée par un pipi et un caca ne part que quand plus aucune entrée ne l'utilise */
+async function removePhotoIfUnused(path) {
+  if (!path) return;
+  try {
+    const r = await S.sb.from('entries').select('id', { count: 'exact', head: true }).eq('photo_path', path);
+    if (r.error || (r.count || 0) > 0) return;
+  } catch (e) { return; }
+  S.sb.storage.from('photos').remove([path]);
+}
+
 /* Modification d'une entrée déjà enregistrée */
 async function saveEdit(f, row) {
   const id = f.editId;
@@ -1280,7 +1433,7 @@ async function saveEdit(f, row) {
     if (payload.photo_path) S.sb.storage.from('photos').remove([payload.photo_path]);
     return fail(r.error, "Modification d'une entrée");
   }
-  if (oldToRemove) S.sb.storage.from('photos').remove([oldToRemove]);
+  if (oldToRemove) removePhotoIfUnused(oldToRemove);
   setPhoto(null);
   closeSheet();
   if (photoNote) toast(photoNote, 'err'); else toast('Modifié ✔');
@@ -1293,7 +1446,7 @@ async function deleteEntry(id) {
   const old = findEntry(id);
   const r = await S.sb.from('entries').delete().eq('id', id);
   if (r.error) return fail(r.error, "Suppression d'une entrée");
-  if (old && old.photo_path) S.sb.storage.from('photos').remove([old.photo_path]);
+  if (old && old.photo_path) removePhotoIfUnused(old.photo_path);
   closeSheet();
   toast('Entrée supprimée');
   await refreshData();
@@ -1450,7 +1603,7 @@ document.addEventListener('click', async ev => {
       if (!S.childId) { toast("Aucun enfant dans cette famille", 'err'); break; }
       formSheet(el.dataset.kind); break;
     case 'child':
-      S.childId = el.dataset.id; store.set('popot-child', S.childId); cacheSave(); render();
+      S.childId = el.dataset.id; store.set('popot-child', S.childId); cacheSave(); S.usage = null; await loadUsage(); render();
       if (S.view === 'stats') { S.stat.sel = null; await loadStat(); }
       break;
     case 'menu': openMenu(); break;
@@ -1487,6 +1640,11 @@ document.addEventListener('click', async ev => {
         document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.texture));
       }
       break;
+    case 'part': if (S.form && S.form.kind === 'couche') { S.form[el.dataset.part] = !S.form[el.dataset.part]; paintCouche(); } break;
+    case 'pcolor': if (S.form) { S.form.pipiColor = S.form.pipiColor === el.dataset.name ? null : el.dataset.name; paintCouche(); } break;
+    case 'ccolor': if (S.form) { S.form.cacaColor = S.form.cacaColor === el.dataset.name ? null : el.dataset.name; paintCouche(); } break;
+    case 'adaptive': store.set('popot-adaptive', !adaptiveOn()); await loadUsage(); settingsSheet(); render(); break;
+    case 'tip': { const t = $('#tip'); if (t) t.hidden = !t.hidden; break; }
     case 'vlevel':
       if (S.form) { const n = Number(el.dataset.n); S.form.level = S.form.level === n ? 0 : n; paintLevel(); }
       break;
