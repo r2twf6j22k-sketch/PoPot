@@ -59,16 +59,20 @@
 </script>
 <style>
 :root{
-  --bg:#f4f7fb; --card:#ffffff; --ink:#1d2433; --soft:#667085; --line:#e1e7ef;
-  --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e; --temperature:#e8590c;
-  --accent:#3b5bdb; --danger:#c62828; --s1:#e5527e; --s2:#0f9d8a;
-  --warn-bg:#fff3cd; --warn-ink:#6b4e00;
-  --off-bg:#f9e3e4; --off-ink:#a8434a;
+  /* mode clair : tons doux, papier chaud, couleurs adoucies */
+  --bg:#f6f3ee; --card:#fdfcfa; --ink:#2e3140; --soft:#6f7380; --line:#e7e1d8;
+  --pipi:#5f9ac8; --caca:#a98457; --vomi:#7da46c; --biberon:#cf7f96; --temperature:#d98b62;
+  --accent:#5b6fb8; --danger:#b9524f; --s1:#cf7f96; --s2:#4f9d91;
+  --tb:1.5px; --tbm:60%;
+  --warn-bg:#f8efd3; --warn-ink:#6b5320;
+  --off-bg:#f5e6e2; --off-ink:#a0524f;
   --radius:22px;
 }
 @media (prefers-color-scheme:dark){
   :root{ --bg:#11151d; --card:#1a202b; --ink:#eef2f8; --soft:#9aa6b8; --line:#2a3342;
-         --accent:#6f8cff; --warn-bg:#4a3a10; --warn-ink:#ffe08a; --off-bg:#4a2a2e; --off-ink:#f4a6aa; }
+         --accent:#6f8cff; --warn-bg:#4a3a10; --warn-ink:#ffe08a; --off-bg:#4a2a2e; --off-ink:#f4a6aa;
+         --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e; --temperature:#e8590c;
+         --danger:#c62828; --s1:#e5527e; --s2:#0f9d8a; --tb:2.5px; --tbm:100%; }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);
@@ -169,7 +173,7 @@ body.hasoffbar .toast{bottom:calc(76px + env(safe-area-inset-bottom))}
 .chip{border:2px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:15px;font-weight:600;cursor:pointer}
 .chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--card))}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-.tile{--c:var(--accent);border:2.5px solid var(--c);background:var(--card);
+.tile{--c:var(--accent);border:var(--tb) solid color-mix(in srgb,var(--c) var(--tbm),transparent);background:var(--card);
   background:color-mix(in srgb,var(--c) 13%,var(--card));border-radius:var(--radius);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:10px;
   transition:transform .08s ease}
@@ -513,7 +517,7 @@ function renderBanner() {
   const b = $('#banner');
   b.innerHTML = parts.join('');
   b.className = parts.length ? 'banner on' : 'banner';
-  const bar = $('#offbar'), show = isOffline() && !!S.familyId && ['dashboard', 'history', 'stats', 'achv'].includes(S.view);
+  const bar = $('#offbar'), show = isOffline() && !!S.familyId && !offlineModeOn() && ['dashboard', 'history', 'stats', 'achv'].includes(S.view);
   if (bar) { bar.textContent = show ? (offlineModeOn() ? OFFBAR_ON : OFFBAR_OFF) : ''; bar.className = show ? 'offbar on' : 'offbar'; }
   document.body.classList.toggle('hasoffbar', show);
 }
