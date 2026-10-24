@@ -11,17 +11,72 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E👶%3C/text%3E%3C/svg%3E">
+<script>
+/* ===== MODULE 3 – PARTIE 1 : mode hors connexion (service worker) =====
+   Script volontairement séparé du reste : même si l'application plante, le « interrupteur de sécurité » fonctionne.
+   - ?nosw=1 : désinstalle le service worker, vide ses caches et le garde désactivé (réactivable dans Réglages ou avec ?nosw=0)
+   - Réglages > « Désactiver le mode hors connexion » : même chose depuis l'application */
+(function () {
+  /* DEFAULT_OFF = true : version de production, le mode hors connexion est éteint tant qu'on ne l'active pas (clé « popot-sw-on »).
+     DEFAULT_OFF = false : lien d'essai, le mode est allumé sauf si on l'éteint (clé « popot-sw-off »). */
+  var DEFAULT_OFF = true;
+  var KEY = DEFAULT_OFF ? 'popot-sw-on' : 'popot-sw-off';
+  var HAD_CODE = false; try { HAD_CODE = !!localStorage.getItem('popot-code'); } catch (e) { /* rien */ }
+  var api = window.PoPoTSW = { supported: false, off: false, defaultOff: DEFAULT_OFF, hadCode: HAD_CODE, ready: Promise.resolve(), error: null };
+  function flag() { try { var v = localStorage.getItem(KEY) === '1'; return DEFAULT_OFF ? !v : v; } catch (e) { return DEFAULT_OFF; } }
+  function setFlag(off) { try { if (off !== DEFAULT_OFF) localStorage.setItem(KEY, '1'); else localStorage.removeItem(KEY); } catch (e) { /* rien */ } }
+  api.supported = !!(navigator.serviceWorker) && /^https?:$/.test(location.protocol);
+  api.off = flag();
+  function wipe() {
+    var jobs = [];
+    try {
+      if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { var mine = new URL('./', location.href).href; return Promise.all(rs.filter(function (r) { return r.scope === mine; }).map(function (r) { return r.unregister(); })); }));
+      if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return /^popot-/.test(k); }).map(function (k) { return caches.delete(k); })); }));
+    } catch (e) { api.error = String(e && e.message || e); }
+    // le service worker encore actif peut recréer une réserve vide pendant que la page se charge : on repasse après coup
+    [700, 1400].forEach(function (ms) { setTimeout(function () { try { if (window.caches) caches.keys().then(function (ks) { ks.filter(function (k) { return /^popot-/.test(k); }).forEach(function (k) { caches.delete(k); }); }); } catch (e) { /* rien */ } }, ms); });
+    return Promise.all(jobs).catch(function (e) { api.error = String(e && e.message || e); });
+  }
+  function register() {
+    if (!api.supported) return Promise.resolve(null);
+    return navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' })
+      .catch(function (e) { api.error = String(e && e.message || e); return null; });
+  }
+  api.disable = function () { setFlag(true); api.off = true; return wipe(); };
+  api.enable = function () { setFlag(false); api.off = false; return register(); };
+  api.state = function () {
+    if (!api.supported) return Promise.resolve('unsupported');
+    if (api.off) return Promise.resolve('off');
+    return navigator.serviceWorker.getRegistration().then(function (r) { return r && r.active ? 'ready' : 'installing'; }, function () { return 'installing'; });
+  };
+  var m = /[?&]nosw=([01])(?:&|$)/.exec(location.search), cleanUrl = false;
+  if (m) {
+    cleanUrl = true;
+    if (m[1] === '1') { setFlag(true); api.off = true; api.ready = wipe(); }
+    else { setFlag(false); api.off = false; }
+  }
+  if (cleanUrl) {
+    try { history.replaceState(null, '', location.pathname + location.search.replace(/([?&])nosw=[01](&|$)/, function (x, a, b) { return b ? a : ''; }).replace(/^&/, '?') + location.hash); } catch (e) { /* rien */ }
+  }
+  if (api.supported && !api.off) window.addEventListener('load', function () { api.ready = register(); });
+})();
+</script>
 <style>
 :root{
-  --bg:#f4f7fb; --card:#ffffff; --ink:#1d2433; --soft:#667085; --line:#e1e7ef;
-  --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e; --temperature:#e8590c;
-  --accent:#3b5bdb; --danger:#c62828; --s1:#e5527e; --s2:#0f9d8a;
-  --warn-bg:#fff3cd; --warn-ink:#6b4e00;
+  /* mode clair : tons doux, papier chaud, couleurs adoucies */
+  --bg:#f6f3ee; --card:#fdfcfa; --ink:#2e3140; --soft:#6f7380; --line:#e7e1d8;
+  --pipi:#5f9ac8; --caca:#a98457; --vomi:#7da46c; --biberon:#cf7f96; --temperature:#d98b62;
+  --accent:#5b6fb8; --danger:#b9524f; --s1:#cf7f96; --s2:#4f9d91;
+  --tb:1.5px; --tbm:60%;
+  --warn-bg:#f8efd3; --warn-ink:#6b5320;
+  --off-bg:#f5e6e2; --off-ink:#a0524f;
   --radius:22px;
 }
 @media (prefers-color-scheme:dark){
   :root{ --bg:#11151d; --card:#1a202b; --ink:#eef2f8; --soft:#9aa6b8; --line:#2a3342;
-         --accent:#6f8cff; --warn-bg:#4a3a10; --warn-ink:#ffe08a; }
+         --accent:#6f8cff; --warn-bg:#4a3a10; --warn-ink:#ffe08a; --off-bg:#4a2a2e; --off-ink:#f4a6aa;
+         --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e; --temperature:#e8590c;
+         --danger:#c62828; --s1:#e5527e; --s2:#0f9d8a; --tb:2.5px; --tbm:100%; }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);
@@ -96,22 +151,39 @@ button.tl.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .top .sub{font-size:26px;font-weight:800;letter-spacing:-.01em}
 .icon{border:0;background:var(--card);border:1px solid var(--line);width:46px;height:46px;border-radius:50%;font-size:22px;cursor:pointer}
 
-/* bandeau hors connexion */
-.banner{display:none;position:sticky;top:0;z-index:10;background:var(--warn-bg);color:var(--warn-ink);
-  padding:8px 14px;font-size:14px;font-weight:600;text-align:center}
-.banner.on{display:block}
+/* barre du haut : réseau absent (icône Wi-Fi barré, rouge doux) et modifications en attente */
+.banner{display:none;position:sticky;top:0;z-index:10;background:var(--bg);padding:6px 12px;
+  font-size:13px;font-weight:600;text-align:center}
+.banner.on{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;justify-content:center}
+.netoff,.netpend{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 12px}
+.netoff{background:var(--off-bg);color:var(--off-ink)}
+.netoff svg{width:17px;height:17px;flex:none}
+.netpend{background:var(--warn-bg);color:var(--warn-ink)}
+.asof{font-size:13px;color:var(--soft);margin:-6px 0 12px}
+/* bandeau du bas : hors connexion (jamais sur l'écran de bienvenue) ; ne cache aucun bouton grâce au bas de page réservé */
+.offbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:15;min-height:44px;align-items:center;justify-content:center;text-align:center;
+  padding:8px 16px calc(8px + env(safe-area-inset-bottom));background:var(--off-bg);color:var(--ink);border-top:2px solid var(--off-ink);
+  font-size:14px;font-weight:600;line-height:1.35}
+.offbar.on{display:flex}
+body.hasoffbar #app,body.hasoffbar #app.full{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+body.hasoffbar .toast{bottom:calc(76px + env(safe-area-inset-bottom))}
+.offm{z-index:70}
+.offm .cbox p{font-size:16px;line-height:1.4}
+.offm .wifioff{width:44px;height:44px;color:var(--off-ink)}
+.offm .wifioff svg{width:100%;height:100%}
+.offm .wifioff{font-size:38px;line-height:44px;text-align:center}
 
 /* tableau de bord */
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px}
 .chip{border:2px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:15px;font-weight:600;cursor:pointer}
 .chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--card))}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-.tile{--c:var(--accent);border:2.5px solid var(--c);background:var(--card);
+.tile{--c:var(--accent);border:var(--tb) solid color-mix(in srgb,var(--c) var(--tbm),transparent);background:var(--card);
   background:color-mix(in srgb,var(--c) 13%,var(--card));border-radius:var(--radius);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:10px;
   transition:transform .08s ease}
 .tile:active{transform:scale(.96)}
-.tile.big{height:178px}
+.tile.big{height:auto;min-height:178px}
 .grid .wide{grid-column:1/-1}
 #app.full{display:flex;flex-direction:column;min-height:100dvh;padding-bottom:14px}
 .mosaic{flex:1;min-height:360px;display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
@@ -122,7 +194,9 @@ button.tl.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .mosaic .tile .meta{font-size:clamp(10px,6cqmin,13px)}
 @container (max-height:110px){.mosaic .tile .meta{display:none}}
 @container (max-height:80px){.mosaic .tile .em{font-size:26px}}
-.tile .em2{font-size:46px;letter-spacing:-6px}
+.tile .em.em2{font-size:44px;letter-spacing:-6px;white-space:nowrap}   /* deux emojis sur une seule ligne (sinon la couche déborde sur petit écran) */
+.mosaic .tile .em.em2{font-size:clamp(20px,24cqmin,60px)}
+@container (max-height:80px){.mosaic .tile .em.em2{font-size:22px}}
 .sw2{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0}
 .sw2 b{display:block}
 .tgl{width:54px;height:32px;border-radius:999px;border:0;background:var(--line);position:relative;cursor:pointer;flex:none}
@@ -234,6 +308,7 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 <nav id="drawer" class="drawer" aria-label="Menu"></nav>
 <div id="sheet" class="sheet" role="dialog" aria-modal="true"></div>
 <div id="toast" class="toast" role="status"></div>
+<div id="offbar" class="offbar" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -243,8 +318,12 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '3.1';
+const VERSION = '4.0';
 const PAGE = 40;
+const CDN_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+const LOCAL_MONTHS = 13;          // durée conservée dans la copie locale du téléphone
+const LOCAL_MAX = 20000;          // garde-fou : nombre maximum d'entrées gardées sur le téléphone
+const FULL_SYNC_EVERY = 5 * 60e3; // copie complète au plus toutes les 5 minutes (sauf au lancement et au retour du réseau)
 
 /* ===== Les choix proposés dans les formulaires ===== */
 const KINDS = {
@@ -271,6 +350,8 @@ const VLEVELS = ['Petit rejet', 'Moins 1/2 Bib', '1/2 Bib', '+ 1/2 Bib', 'Tout l
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
+// accord français : 0 et 1 au singulier, 2 et plus au pluriel
+const plur = (n, one, many) => n > 1 ? many : one;
 const hhmm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
 const dayKey = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 const inputValue = d => dayKey(d) + 'T' + hhmm(d);
@@ -297,7 +378,7 @@ const usageKey = () => 'popot-usage-' + S.familyId + '-' + S.childId;
 async function loadUsage() {
   if (!S.familyId || !S.childId || !adaptiveOn()) return;
   S.usage = store.get(usageKey(), null) || S.usage || null;
-  if (!navigator.onLine) return;
+  if (!serverOK()) return;
   try {
     const since = new Date(Date.now() - 10 * 864e5).toISOString();
     const r = await S.sb.from('entries').select('kind').eq('family_id', S.familyId).eq('child_id', S.childId).gte('occurred_at', since).limit(5000);
@@ -314,9 +395,12 @@ const S = {
   children: [], childId: null, today: [],
   hist: { items: [], more: false, loading: false, kind: 'all', childId: null, day: '' },
   view: 'loading', errText: '', form: null,
-  queue: store.get('popot-queue', []), offline: false
+  queue: (store.get('popot-queue', []) || []).filter(x => x && typeof x === 'object'), offline: false,
+  confirmed: false,   // vrai dès que la connexion au serveur est établie (tant que faux : on affiche la copie du téléphone et les ajouts attendent)
+  /* PARTIE 1 : copie locale (miroir du serveur) : entrées des 13 derniers mois, totaux des succès */
+  local: { familyId: null, entries: [], syncedAt: null, fullAt: 0, from: null, totals: null, totalsAt: null }
 };
-let flushing = false, rtTimer = null, toastTimer = null;
+let rtTimer = null, toastTimer = null;
 
 /* ===== Journal des erreurs : un seul jour conservé, en français ===== */
 function log(text, tech) {
@@ -338,7 +422,7 @@ function frError(err) {
   const msg = String((err && (err.message || err.error_description || err.msg)) || err || '');
   const code = String((err && (err.code || err.error_code)) || '');
   const status = err && err.status;
-  if (!navigator.onLine) return { kind: 'offline', text: "Pas de connexion internet. Vos ajouts sont gardés sur ce téléphone et seront envoyés dès que le réseau revient." };
+  if (!navigator.onLine) return { kind: 'offline', text: "Pas de connexion internet. Vos modifications sont gardées sur ce téléphone et seront envoyées dès que le réseau revient." };
   if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg))
     return { kind: 'down', text: "Le service ne répond pas. Il est peut-être en pause (après une semaine sans utilisation). Veuillez contacter votre administrateur pour qu'il le réactive." };
   if (/read-only|quota|exceed|disk full|payment required/i.test(msg) || status === 402)
@@ -361,12 +445,12 @@ function fail(err, ctx) {
 }
 
 /* ===== Messages et fenêtre du bas ===== */
-function toast(text, type) {
+function toast(text, type, ms) {
   const el = $('#toast');
   el.textContent = text;
   el.className = 'toast on ' + (type || '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.className = 'toast'; }, type === 'err' ? 8000 : 2600);
+  toastTimer = setTimeout(() => { el.className = 'toast'; }, ms || (type === 'err' ? 8000 : 2600));
 }
 function openSheet(html) {
   $('#sheet').innerHTML = html;
@@ -379,14 +463,238 @@ function closeSheet() {
   $('#backdrop').classList.remove('on');
   S.form = null;
 }
+/* ===================================================================================
+   MODULE 3 – PARTIE 1 : ouverture et lecture sans connexion
+   (réseau, fenêtre d'information, copie locale des données sur le téléphone)
+   =================================================================================== */
+const WIFI_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+let netDown = false, probeTimer = null;
+// « hors connexion » = le navigateur le dit (navigator.onLine) OU une vraie requête a échoué (navigator.onLine peut se tromper)
+const isOffline = () => netDown || !navigator.onLine;
+// peut-on parler au serveur ? (force = on tente quand même, pour savoir si le réseau est revenu)
+const serverOK = force => !!S.sb && S.confirmed && navigator.onLine && (force === true || !netDown);
+const isNetErr = err => { const k = frError(err).kind; return k === 'offline' || k === 'down'; };
+function netFail(err) { if (isNetErr(err)) { setNet(true); return true; } return false; }
+function setNet(down, quiet) {
+  down = !!down;
+  if (down === netDown) { renderBanner(); return; }
+  netDown = down; S.offline = down;
+  // la fenêtre d'information n'apparaît jamais sur l'écran de bienvenue (rien à montrer) ni quand le mode hors connexion est désactivé
+  if (down) { if (!quiet && S.familyId && offlineModeOn()) showOffModal(); startProbe(); } else { hideOffModal(); stopProbe(); }
+  if (S.familyId && ['dashboard', 'history', 'stats', 'achv'].includes(S.view)) render(); else renderBanner();
+}
+// si le réseau est « faux » (navigator.onLine vrai mais rien ne passe), on réessaie toutes les 15 secondes
+function startProbe() { if (!probeTimer) probeTimer = setInterval(() => { if (navigator.onLine) probe(); }, 15000); }
+function stopProbe() { clearInterval(probeTimer); probeTimer = null; }
+
+const OFF_TEXT = 'Hors connexion : vous voyez les dernières données enregistrées sur ce téléphone. Vos modifications seront envoyées au retour du réseau.';
+function showOffModal() {
+  let el = $('#offmodal');
+  if (!el) { el = document.createElement('div'); el.id = 'offmodal'; el.className = 'cele offm'; document.body.appendChild(el); }
+  if (el.classList.contains('on')) return;
+  el.innerHTML = '<div class="cbox" role="dialog" aria-modal="true" aria-labelledby="offtxt"><div class="wifioff">' + WIFI_OFF + '</div>' +
+    '<p id="offtxt">' + esc(OFF_TEXT) + '</p><button class="btn" id="offokBtn" data-act="offok">OK</button></div>';
+  el.classList.add('on');
+  const b = $('#offokBtn'); if (b) { try { b.focus(); } catch (e) { /* rien */ } }
+}
+function hideOffModal() { const el = $('#offmodal'); if (el) { el.classList.remove('on'); el.innerHTML = ''; } }
+
+// « mode hors connexion » (Réglages) : activé = on peut continuer à saisir sans réseau ; désactivé = l'application ne sert qu'avec une connexion.
+// Les navigateurs sans service worker gardent le fonctionnement « activé ».
+const offlineModeOn = () => { const sw = window.PoPoTSW; return !(sw && sw.supported && sw.off); };
+const OFFBAR_ON = 'Hors connexion : vous pourrez continuer à saisir des entrées.';
+const OFFBAR_OFF = "Hors connexion : vous ne pourrez pas saisir d'entrées.";
+// mode désactivé et sans réseau : ajouter, modifier, supprimer sont refusés (rien n'est mis en file)
+function blockedOffline() {
+  if (offlineModeOn() || !isOffline()) return false;
+  toast(OFFBAR_OFF, 'err'); return true;
+}
+// mode désactivé : un échec réseau pendant une écriture n'est PAS mis en file (si le serveur l'a reçue, le prochain rafraîchissement la montrera)
+function writeRefused(err) {
+  setNet(true);
+  log("Écriture refusée (mode hors connexion désactivé) : " + frError(err).text, err && err.message);
+  toast(OFFBAR_OFF, 'err');
+}
 function renderBanner() {
   const parts = [];
-  if (!navigator.onLine || S.offline) parts.push('📴 Hors connexion');
-  if (S.queue.length) parts.push('⏳ ' + S.queue.length + (S.queue.length > 1 ? ' entrées en attente' : ' entrée en attente') + " d'envoi");
+  if (isOffline() && offlineModeOn()) parts.push('<span class="netoff" id="netoff">' + WIFI_OFF + 'Hors connexion</span>');
+  if (S.queue.length) parts.push('<span class="netpend" id="netpend">⏳ ' + S.queue.length + ' ' + plur(S.queue.length, 'modification', 'modifications') + " en attente d'envoi</span>");
   const b = $('#banner');
-  b.innerHTML = parts.map(p => '<div>' + p + '</div>').join('');
+  b.innerHTML = parts.join('');
   b.className = parts.length ? 'banner on' : 'banner';
+  const bar = $('#offbar'), show = isOffline() && !!S.familyId && !offlineModeOn() && ['dashboard', 'history', 'stats', 'achv'].includes(S.view);
+  if (bar) { bar.textContent = show ? (offlineModeOn() ? OFFBAR_ON : OFFBAR_OFF) : ''; bar.className = show ? 'offbar on' : 'offbar'; }
+  document.body.classList.toggle('hasoffbar', show);
 }
+
+/* ----- copie locale : IndexedDB (et non localStorage) ----------------------------------
+   13 mois d'entrées peuvent peser plusieurs Mo : localStorage est limité (~5 Mo, lecture bloquante, tout en texte)
+   alors qu'IndexedDB stocke des objets, sans lecture bloquante et avec une bien plus grande réserve.
+   Les petites choses (code famille, enfants, file d'attente, choix) restent dans localStorage comme avant. */
+const idb = (() => {
+  let p = null;
+  const open = () => p || (p = new Promise(res => {
+    const t = setTimeout(() => res(null), 3000);
+    try {
+      const r = indexedDB.open('popot-local', 1);
+      r.onupgradeneeded = () => { try { r.result.createObjectStore('kv'); } catch (e) { /* rien */ } };
+      r.onsuccess = () => { clearTimeout(t); res(r.result); };
+      r.onerror = r.onblocked = () => { clearTimeout(t); res(null); };
+    } catch (e) { clearTimeout(t); res(null); }
+  }));
+  const run = (mode, fn) => open().then(db => !db ? undefined : new Promise(res => {
+    try {
+      const t = db.transaction('kv', mode), rq = fn(t.objectStore('kv'));
+      t.oncomplete = () => res(rq && rq.result); t.onerror = t.onabort = () => res(undefined);
+    } catch (e) { res(undefined); }
+  }));
+  return { get: k => run('readonly', o => o.get(k)), set: (k, v) => run('readwrite', o => o.put(v, k)), del: k => run('readwrite', o => o.delete(k)) };
+})();
+const localKey = id => 'local-' + id;
+const emptyLocal = id => ({ familyId: id || null, entries: [], syncedAt: null, fullAt: 0, from: null, totals: null, totalsAt: null, complete: false, interrupted: false, suspectAt: null, suspectTodayAt: null });
+let persistTimer = null;
+function persistLocal() {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => { const L = S.local; if (L.familyId) idb.set(localKey(L.familyId), Object.assign({ v: 1 }, L)); }, 400);
+}
+async function loadLocal(familyId) {
+  if (!familyId || S.local.familyId === familyId) return;
+  const rec = await idb.get(localKey(familyId));
+  if (S.local.familyId === familyId) return;
+  S.local = emptyLocal(familyId);
+  if (rec && rec.familyId === familyId && Array.isArray(rec.entries)) {
+    Object.assign(S.local, { entries: rec.entries, syncedAt: rec.syncedAt || null, fullAt: rec.fullAt || 0, from: rec.from || null, totals: rec.totals || null, totalsAt: rec.totalsAt || null,
+      complete: rec.complete === undefined ? !!rec.fullAt : !!rec.complete, interrupted: !!rec.interrupted, suspectAt: rec.suspectAt || null, suspectTodayAt: rec.suspectTodayAt || null });
+  }
+}
+const todayStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+const byTimeDesc = (a, b) => new Date(b.occurred_at) - new Date(a.occurred_at);
+const localFrom = () => { const d = todayStart(); d.setMonth(d.getMonth() - LOCAL_MONTHS); return d; };
+// les entrées du jour viennent d'être lues sur le serveur : elles remplacent celles de la copie locale
+function localMergeToday(rows, start) {
+  const L = S.local; if (!L.familyId) return;
+  L.entries = L.entries.filter(e => new Date(e.occurred_at) < start).concat(rows);
+  persistLocal();
+}
+function mirrorUpsert(row) {
+  const L = S.local; if (!L.familyId) return;
+  const i = L.entries.findIndex(e => e.id === row.id);
+  if (i < 0) L.entries.unshift(Object.assign({ created_at: new Date().toISOString() }, row)); else L.entries[i] = Object.assign({}, L.entries[i], row);
+  persistLocal();
+}
+function mirrorPatch(id, patch) { const e = S.local.entries.find(x => x.id === id); if (e) { Object.assign(e, patch); persistLocal(); } }
+function mirrorDelete(id) { S.local.entries = S.local.entries.filter(e => e.id !== id); persistLocal(); }
+
+/* Une réponse VIDE du serveur (sans erreur) ne doit jamais effacer en silence une copie qui contient des entrées
+   (réponse « fantôme » d'un réseau capricieux ou d'un Wi-Fi public). Règle :
+   1re réponse vide : on garde la copie et on note l'heure ; une 2e réponse vide au moins 30 s plus tard, confirmée par un
+   comptage séparé à 0, est considérée comme vraie : la copie est vidée (une seule confirmation, pas de boucle).
+   Un « aujourd'hui » vide au changement de jour n'est pas suspect : la copie n'avait rien pour aujourd'hui. */
+const SUSPECT_GAP = 30e3;
+async function acceptEmpty(field, localCount) {
+  const L = S.local;
+  if (!localCount) { if (L[field]) { L[field] = null; persistLocal(); } return true; }
+  if (!L[field]) { L[field] = Date.now(); persistLocal(); log('Copie locale du téléphone : réponse vide du serveur ignorée pour cette fois'); return false; }
+  if (Date.now() - L[field] < SUSPECT_GAP) return false;
+  try {
+    const r = await S.sb.from('entries').select('id', { count: 'exact', head: true }).eq('family_id', L.familyId);
+    if (r.error || (r.count || 0) > 0) { if (!r.error) { L[field] = null; persistLocal(); } return false; }
+  } catch (e) { return false; }
+  L[field] = null; persistLocal(); return true;
+}
+
+// copie complète des 13 derniers mois (tous les enfants de la famille)
+let syncing = false;
+async function syncLocal(force) {
+  if (syncing || !S.familyId || !serverOK()) return;
+  if (!force && Date.now() - S.local.fullAt < FULL_SYNC_EVERY) return;
+  syncing = true;
+  const fam = S.familyId;
+  let all = [], off = 0, finished = false;
+  try {
+    await loadLocal(fam);
+    const from = localFrom();
+    for (;;) {
+      const r = await S.sb.from('entries').select('*').eq('family_id', fam).gte('occurred_at', from.toISOString())
+        .order('occurred_at', { ascending: false }).range(off, off + 999);
+      if (r.error) throw r.error;
+      all = all.concat(r.data || []);
+      if ((r.data || []).length < 1000 || all.length >= LOCAL_MAX) break;
+      off += 1000;
+    }
+    finished = true;
+    if (S.familyId !== fam) return;
+    const L = S.local;
+    if (!all.length && !(await acceptEmpty('suspectAt', L.entries.length))) { L.fullAt = Date.now(); return; }
+    if (all.length && L.suspectAt) { L.suspectAt = null; }
+    L.entries = all.slice(0, LOCAL_MAX); L.from = from.getTime();
+    L.complete = true; L.interrupted = false; L.fullAt = L.syncedAt = Date.now();
+    persistLocal();
+  } catch (e) {
+    // copie interrompue : si elle n'a jamais été complète, on garde ce qui est déjà arrivé (marqué « incomplet »), sinon on garde l'ancienne copie complète
+    if (!finished && S.familyId === fam) {
+      if (!S.local.complete && all.length) { S.local.entries = all; S.local.from = localFrom().getTime(); S.local.syncedAt = null; persistLocal(); }
+      else if (S.local.complete && !S.local.interrupted) { S.local.interrupted = true; persistLocal(); }   // l'ancienne copie complète est gardée, on le signale
+    }
+    if (!netFail(e)) log('Copie locale du téléphone : mise à jour impossible', e && e.message);
+  }
+  finally { syncing = false; }
+}
+
+/* Les modifications en attente (PARTIE 2) se superposent à la copie du serveur */
+const opType = x => x.op || 'insert';
+function overlay(list) {
+  const m = new Map();
+  list.forEach(e => m.set(e.id, e));
+  S.queue.forEach(op => {
+    if (op.family_id !== S.familyId) return;
+    const t = opType(op);
+    if (t === 'insert') { if (!m.has(op.id)) m.set(op.id, op); }
+    else if (t === 'update') { const e = m.get(op.id); if (e) m.set(op.id, Object.assign({}, e, op.patch)); }
+    else if (t === 'delete') m.delete(op.id);
+  });
+  return Array.from(m.values());
+}
+function localQuery(f) {
+  return overlay(S.local.entries).filter(e => (!f.child || e.child_id === f.child) && (!f.kind || e.kind === f.kind) &&
+    (!f.from || new Date(e.occurred_at) >= f.from) && (!f.to || new Date(e.occurred_at) < f.to));
+}
+const todayFromLocal = () => localQuery({ from: todayStart() }).sort(byTimeDesc);
+
+function aggregate(list) {
+  let c = 0, p = 0, ml = 0, g = 0;
+  list.forEach(e => {
+    if (e.kind === 'caca') c++; else if (e.kind === 'pipi') p++;
+    else if (e.kind === 'biberon') { ml += Number(e.quantity_drunk) || 0; g += Number(e.quantity_eaten) || 0; }
+  });
+  return { caca: c, pipi: p, biberon: ml / 1000, mange: g / 1000 };
+}
+// derniers totaux connus + effet des modifications en attente
+function offlineTotals() {
+  const base = S.local.totals; if (!base) return null;
+  const a = aggregate(S.local.entries), b = aggregate(overlay(S.local.entries)), out = {};
+  TRACK_KEYS.forEach(k => { out[k] = Math.max(0, Math.round(((base[k] || 0) + b[k] - a[k]) * 1e6) / 1e6); });
+  return out;
+}
+function asofText(ts) {
+  if (!ts) return 'Aucune donnée enregistrée sur ce téléphone';
+  const d = new Date(ts), o = { day: 'numeric', month: 'short' };
+  if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+  return 'Données à jour au ' + d.toLocaleDateString('fr-FR', o) + ' à ' + hhmm(d);
+}
+const NO_DATA = 'Aucune donnée enregistrée sur ce téléphone';
+const INCOMPLETE_NOTE = "Copie incomplète : ce téléphone n'a reçu qu'une partie des données (copie partielle). Le reste sera récupéré à la prochaine ouverture avec une connexion.";
+const INTERRUPTED_NOTE = ' La dernière mise à jour a été interrompue : il peut manquer quelques entrées (copie partielle).';
+const hasLocalData = () => !!(S.local.syncedAt || S.local.entries.length);
+// ts = date des derniers totaux (Succès) ; sans ts : la note concerne la copie des entrées (accueil, historique, courbes)
+const asofHtml = ts => {
+  let t;
+  if (ts !== undefined) t = asofText(ts);
+  else t = !S.local.complete ? (S.local.entries.length ? INCOMPLETE_NOTE : NO_DATA) : asofText(S.local.syncedAt) + (S.local.interrupted ? '.' + INTERRUPTED_NOTE : '');
+  return '<div class="asof" id="asof">' + esc(t) + '</div>';
+};
+const tooOld = start => !!(S.local.from && start && start.getTime() < S.local.from);
+const OLD_NOTE = '<p class="soft small">Hors connexion : les données de plus de ' + LOCAL_MONTHS + ' mois ne sont pas gardées sur ce téléphone.</p>';
 
 /* ===== Enfants ===== */
 const childName = c => (c && (c.first_name || c.label)) || '';
@@ -451,7 +759,8 @@ function viewDashboard() {
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
     : '';
   const head = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button><div><div class="hi">PoPoT</div><div class="sub">' + esc(childName(c)) + '</div></div></div>' +
-    '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs;
+    '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs +
+    (isOffline() ? asofHtml() : '');
   if (adaptiveOn()) {
     const u = S.usage || {};
     const raw = { couche: (u.pipi || 0) + (u.caca || 0), biberon: u.biberon || 0, vomi: u.vomi || 0, temperature: u.temperature || 0 };
@@ -478,6 +787,7 @@ function viewHistory() {
   const kinds = ['all', 'pipi', 'caca', 'vomi', 'biberon', 'temperature'];
   let html = '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">Historique</div></div>' +
     '<button class="icon" data-act="back" aria-label="Retour">←</button></header>';
+  if (H.local) html += asofHtml();
   if (S.children.length > 1) {
     html += '<div class="chips"><button class="chip ' + (!H.childId ? 'on' : '') + '" data-act="hchild" data-id="">Tous</button>' +
       S.children.map(ch => '<button class="chip ' + (H.childId === ch.id ? 'on' : '') + '" data-act="hchild" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>';
@@ -499,6 +809,7 @@ function viewHistory() {
     html += '</div>';
     if (H.more) html += '<button class="btn alt" data-act="more">Voir plus</button>';
   }
+  if (H.local && !H.more) html += OLD_NOTE;     // hors connexion, fin de liste : rappel de la durée gardée sur le téléphone
   return html;
 }
 
@@ -578,25 +889,34 @@ async function loadStat(silent) {
   const st = S.stat;
   if (!st) return;
   const p = periodOf(st.scale, st.offset), req = ++st.req;
-  if (!silent) { st.loading = true; st.loaded = false; st.failed = false; st.items = []; render(); }
+  if (!silent) { st.loading = true; st.loaded = false; st.failed = false; st.nodata = false; st.items = []; render(); }
+  // PARTIE 1 : sans connexion, les courbes se tracent depuis la copie locale du téléphone
+  const fromLocal = () => localQuery({ child: S.childId, kind: STATS[st.key].kind, from: p.start, to: p.end })
+    .sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
   try {
-    let all = [], from = 0;
-    for (;;) {
-      const r = await S.sb.from('entries').select('id,occurred_at,color,texture,quantity_drunk,quantity_eaten,temperature,comment')
-        .eq('family_id', S.familyId).eq('child_id', S.childId).eq('kind', STATS[st.key].kind)
-        .gte('occurred_at', p.start.toISOString()).lt('occurred_at', p.end.toISOString())
-        .order('occurred_at', { ascending: true }).range(from, from + 999);
-      if (r.error) throw r.error;
-      all = all.concat(r.data);
-      if (r.data.length < 1000) break;
-      from += 1000;
+    if (serverOK()) {
+      let all = [], from = 0;
+      for (;;) {
+        const r = await S.sb.from('entries').select('id,occurred_at,color,texture,quantity_drunk,quantity_eaten,temperature,comment')
+          .eq('family_id', S.familyId).eq('child_id', S.childId).eq('kind', STATS[st.key].kind)
+          .gte('occurred_at', p.start.toISOString()).lt('occurred_at', p.end.toISOString())
+          .order('occurred_at', { ascending: true }).range(from, from + 999);
+        if (r.error) throw r.error;
+        all = all.concat(r.data);
+        if (r.data.length < 1000) break;
+        from += 1000;
+      }
+      if (S.stat !== st || req !== st.req) return;
+      st.items = all; st.failed = false; st.nodata = false; st.loaded = true; st.local = false;
+    } else {
+      if (!hasLocalData()) { st.items = []; st.failed = false; st.nodata = true; st.loaded = true; st.local = false; }
+      else { st.items = fromLocal(); st.failed = false; st.nodata = false; st.loaded = true; st.local = true; }
     }
-    if (S.stat !== st || req !== st.req) return;
-    st.items = all; st.failed = false; st.loaded = true;
   } catch (err) {
     if (S.stat !== st || req !== st.req) return;
-    st.failed = true;
-    fail(err, 'Chargement des courbes');
+    if (isNetErr(err) && hasLocalData()) { setNet(true); st.items = fromLocal(); st.failed = false; st.nodata = false; st.loaded = true; st.local = true; }
+    else if (isNetErr(err)) { setNet(true); st.items = []; st.failed = false; st.nodata = true; st.loaded = true; st.local = false; }
+    else { st.failed = true; if (isNetErr(err)) setNet(true); else fail(err, 'Chargement des courbes'); }
   }
   st.loading = false;
   render();
@@ -755,6 +1075,8 @@ function viewStats() {
     '<div class="pnav"><button class="icon sm" data-act="sprev" aria-label="Période précédente">◀</button><div class="ptitle">' + esc(p.title) + '</div>' +
     '<button class="icon sm" data-act="snext" aria-label="Période suivante"' + (st.offset >= 0 ? ' disabled' : '') + '>▶</button></div>';
   if (!S.childId) return html + '<p class="empty">Aucun enfant dans cette famille.</p>';
+  if (st.local && st.loaded) html += asofHtml() + (tooOld(p.start) ? OLD_NOTE : '');
+  if (st.nodata) return html + '<p class="empty">' + esc(NO_DATA) + '</p>';
   if (st.failed) return html + '<div class="empty">Impossible de charger les courbes. Une connexion est nécessaire.<br><button class="btn alt" data-act="sretry">Réessayer</button></div>';
   if (!st.loaded) return html + '<p class="empty">Chargement…</p>';
   if (st.key === 'temp') return html + tempCard(st, p);
@@ -820,6 +1142,8 @@ async function fetchTotals(keys) {
     }
     out.biberon = ml / 1000; out.mange = g / 1000;
   }
+  // PARTIE 1 : on garde les derniers totaux connus pour la page Succès hors connexion
+  S.local.totals = Object.assign(S.local.totals || {}, out); S.local.totalsAt = Date.now(); persistLocal();
   return out;
 }
 
@@ -834,14 +1158,17 @@ function applyLevels(totals) {
   });
   store.set(key, saved);
 }
-let achBusy = false, achLast = 0;
+let achBusy = false, achLast = 0, achAgain = null;
 async function checkAch(keys, force) {
-  if (!S.familyId || achBusy || !navigator.onLine) return;
+  // jamais de fête hors connexion : elles sont évaluées juste après le renvoi des modifications
+  if (!S.familyId || !serverOK()) return;
+  if (achBusy) { if (force) achAgain = keys || TRACK_KEYS; return; }
   if (!force && Date.now() - achLast < 15000) return;
   achBusy = true; achLast = Date.now();
   try { applyLevels(await fetchTotals(keys || TRACK_KEYS)); }
-  catch (e) { log('Succès : calcul impossible', e && e.message); }
+  catch (e) { if (!netFail(e)) log('Succès : calcul impossible', e && e.message); }
   achBusy = false;
+  if (achAgain) { const k = achAgain; achAgain = null; checkAch(k, true); }
 }
 const achKeysFor = kind => kind === 'caca' ? ['caca'] : kind === 'pipi' ? ['pipi'] : kind === 'biberon' ? ['biberon', 'mange'] : [];
 
@@ -913,18 +1240,29 @@ async function openAchv() {
 }
 async function loadAchv(silent) {
   const a = S.achv; if (!a) return;
+  // PARTIE 1 : sans connexion, derniers totaux connus + modifications en attente, et aucune fête
+  const offline = () => { const t = offlineTotals(); if (!t) { a.nodata = true; a.loaded = true; a.failed = false; a.local = false; return true; }; a.nodata = false; a.totals = t; a.loaded = true; a.failed = false; a.local = true; return true; };
   try {
-    const totals = await fetchTotals(TRACK_KEYS);
+    if (!serverOK()) offline();
+    else {
+      const totals = await fetchTotals(TRACK_KEYS);
+      if (S.achv !== a) return;
+      a.totals = totals; a.loaded = true; a.failed = false; a.nodata = false; a.local = false;
+      applyLevels(totals);
+    }
+  } catch (err) {
     if (S.achv !== a) return;
-    a.totals = totals; a.loaded = true; a.failed = false;
-    applyLevels(totals);
-  } catch (err) { if (S.achv !== a) return; a.failed = true; fail(err, 'Chargement des succès'); }
+    if (isNetErr(err)) { setNet(true); offline(); }
+    else { a.failed = true; fail(err, 'Chargement des succès'); }
+  }
   render();
 }
 function viewAchv() {
   const a = S.achv;
   let html = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button>' +
     '<div><div class="hi">Pour toute la famille</div><div class="sub">🏆 Succès</div></div></div>' + HOME_BTN + '</header>';
+  if (a.nodata) return html + '<p class="empty">' + esc(NO_DATA) + '</p>';
+  if (a.local && a.loaded) html += asofHtml(S.local.totalsAt);
   if (a.failed) return html + '<div class="empty">Impossible de charger les succès. Une connexion est nécessaire.<br><button class="btn alt" data-act="aretry">Réessayer</button></div>';
   if (!a.loaded) return html + '<p class="empty">Chargement…</p>';
   return html + TRACK_KEYS.map(k => {
@@ -1036,7 +1374,7 @@ async function cleanOldPhotos() {
     if (r.error || !r.data || !r.data.length) return;
     await S.sb.storage.from('photos').remove(r.data.map(x => x.photo_path));
     for (const p of Array.from(new Set(r.data.map(x => x.photo_path)))) await S.sb.from('entries').update({ photo_path: null }).eq('photo_path', p);
-    log('Info : ' + r.data.length + ' photo(s) de plus de 10 jours supprimée(s)');
+    log('Info : ' + r.data.length + ' ' + plur(r.data.length, 'photo de plus de 10 jours supprimée', 'photos de plus de 10 jours supprimées'));
   } catch (e) { log('Nettoyage des photos impossible', e && e.message); }
 }
 
@@ -1143,7 +1481,8 @@ function entrySheet(id) {
 }
 
 async function showEntryPhoto(path) {
-  const u = await photoUrl(path);
+  let u = null;
+  if (serverOK()) { try { u = await photoUrl(path); } catch (e) { u = null; } }   // les photos ne s'affichent qu'avec une connexion
   const box = $('#photoShow');
   if (!box) return;
   box.innerHTML = u ? '<img class="photo-big" alt="Photo" src="' + esc(u) + '">' : '<p class="soft">Photo indisponible (supprimée ou hors connexion).</p>';
@@ -1159,9 +1498,25 @@ function settingsSheet() {
     '<h3>Enfants</h3>' +
     S.children.map(c => '<div class="kv"><span>' + esc(childName(c)) + '</span><button class="mini" data-act="rename" data-id="' + esc(c.id) + '">Modifier le prénom</button></div>').join('') +
     '<button class="btn alt" data-act="addchild">+ Ajouter un enfant</button>' +
+    '<h3>Mode hors connexion</h3><p class="soft small" id="swstate" style="margin:4px 0 0">…</p>' +
+    '<button class="btn alt" data-act="swtoggle" id="swbtn" hidden></button>' +
     '<h3>Aide</h3><button class="btn alt" data-act="logs" style="margin-top:8px">Journal des erreurs du jour</button>' +
-    '<button class="btn danger" data-act="leave">Se déconnecter de cette famille</button>' +
+    (serverOK() ? '<button class="btn danger" data-act="leave">Se déconnecter de cette famille</button>'
+      : '<p class="soft small">Se déconnecter de cette famille nécessite une connexion internet.</p>') +
     '<button class="btn ghost" data-act="close">Fermer</button><p class="soft small" style="text-align:center">PoPoT version ' + VERSION + '</p>');
+  swStatus();
+}
+// état du mode hors connexion (Réglages) : prêt / en cours d'installation / désactivé / indisponible
+async function swStatus() {
+  const sw = window.PoPoTSW, el = $('#swstate'), bt = $('#swbtn');
+  if (!el || !bt) return;
+  const st = sw ? await sw.state() : 'unsupported';
+  if (!$('#swstate')) return;
+  const txt = { ready: 'Activé : PoPoT peut s\'ouvrir sans connexion.', installing: 'Activé : installation en cours, réessayez dans un instant.', off: 'Désactivé : PoPoT fonctionne uniquement avec une connexion.',
+    unsupported: 'Non disponible sur ce navigateur ou dans ce mode d\'ouverture.' };
+  el.textContent = txt[st] || '';
+  bt.hidden = st === 'unsupported';
+  bt.textContent = st === 'off' ? 'Activer le mode hors connexion' : 'Désactiver le mode hors connexion';
 }
 
 function logsSheet() {
@@ -1186,53 +1541,74 @@ async function loadChildren() {
   cacheSave();
 }
 
+// lit les entrées du jour sur le serveur, les range dans la copie locale, puis y superpose les modifications en attente
 async function loadToday() {
-  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const start = todayStart();
   const r = await S.sb.from('entries').select('*').eq('family_id', S.familyId)
     .gte('occurred_at', start.toISOString()).order('occurred_at', { ascending: false });
   if (r.error) throw r.error;
-  const ids = new Set((r.data || []).map(x => x.id));
-  const pending = S.queue.filter(x => x.family_id === S.familyId && new Date(x.occurred_at) >= start && !ids.has(x.id));
-  S.today = (r.data || []).concat(pending).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+  const rows = r.data || [], prev = S.local.entries.filter(e => new Date(e.occurred_at) >= start).length;
+  if (rows.length) { if (S.local.suspectTodayAt) { S.local.suspectTodayAt = null; persistLocal(); } localMergeToday(rows, start); }
+  else if (await acceptEmpty('suspectTodayAt', prev)) localMergeToday(rows, start);
+  S.today = overlay(rows).filter(e => new Date(e.occurred_at) >= start).sort(byTimeDesc);
 }
 
 async function loadHistory(mode) {
   const H = S.hist;
   H.loading = true;
+  const from = mode === 'more' ? H.items.length : 0;
+  const size = mode === 'reload' ? Math.max(PAGE, H.items.length) : PAGE;
+  // PARTIE 1 : sans connexion, l'historique (avec ses filtres) vient de la copie locale du téléphone
+  const fromLocal = () => {
+    const f = { child: H.childId, kind: H.kind === 'all' ? null : H.kind };
+    if (H.day) { const s0 = new Date(H.day + 'T00:00:00'), e0 = new Date(s0); e0.setDate(e0.getDate() + 1); f.from = s0; f.to = e0; }
+    const all = localQuery(f).sort(byTimeDesc), page = all.slice(from, from + size);
+    H.items = mode === 'more' ? H.items.concat(page) : page;
+    H.more = all.length > from + size;
+    H.local = true;
+  };
   try {
-    let q = S.sb.from('entries').select('*').eq('family_id', S.familyId);
-    if (H.childId) q = q.eq('child_id', H.childId);
-    if (H.kind !== 'all') q = q.eq('kind', H.kind);
-    if (H.day) {
-      const s = new Date(H.day + 'T00:00:00'), e = new Date(s);
-      e.setDate(e.getDate() + 1);
-      q = q.gte('occurred_at', s.toISOString()).lt('occurred_at', e.toISOString());
+    if (!serverOK()) fromLocal();
+    else {
+      let q = S.sb.from('entries').select('*').eq('family_id', S.familyId);
+      if (H.childId) q = q.eq('child_id', H.childId);
+      if (H.kind !== 'all') q = q.eq('kind', H.kind);
+      if (H.day) {
+        const s = new Date(H.day + 'T00:00:00'), e = new Date(s);
+        e.setDate(e.getDate() + 1);
+        q = q.gte('occurred_at', s.toISOString()).lt('occurred_at', e.toISOString());
+      }
+      const r = await q.order('occurred_at', { ascending: false }).range(from, from + size - 1);
+      if (r.error) throw r.error;
+      H.items = mode === 'more' ? H.items.concat(r.data) : r.data;
+      H.more = r.data.length === size;
+      H.local = false;
     }
-    const from = mode === 'more' ? H.items.length : 0;
-    const size = mode === 'reload' ? Math.max(PAGE, H.items.length) : PAGE;
-    const r = await q.order('occurred_at', { ascending: false }).range(from, from + size - 1);
-    if (r.error) throw r.error;
-    H.items = mode === 'more' ? H.items.concat(r.data) : r.data;
-    H.more = r.data.length === size;
   } catch (err) {
-    fail(err, "Chargement de l'historique");
+    if (isNetErr(err)) { setNet(true); fromLocal(); }
+    else fail(err, "Chargement de l'historique");
   }
   H.loading = false;
 }
 
-async function refreshData() {
+async function refreshData(force) {
   if (!S.familyId) return;
   try {
-    await Promise.all([loadChildren(), loadToday()]);
+    if (serverOK(force)) {
+      await Promise.all([loadChildren(), loadToday()]);
+      setNet(false);
+    } else {
+      S.today = todayFromLocal();
+    }
     if (adaptiveOn()) await loadUsage();
     if (S.view === 'history') await loadHistory('reload');
     if (S.view === 'stats') await loadStat(true);
     if (S.view === 'achv') loadAchv(true);
     checkAch();
-    S.offline = false;
+    syncLocal();
   } catch (err) {
     const f = frError(err);
-    if (f.kind === 'offline' || f.kind === 'down') { S.offline = true; log('Actualisation impossible : ' + f.text, err && err.message); }
+    if (f.kind === 'offline' || f.kind === 'down') { setNet(true); log('Actualisation impossible : ' + f.text, err && err.message); S.today = todayFromLocal(); }
     else fail(err, 'Actualisation des données');
   }
   render();
@@ -1251,14 +1627,33 @@ function subscribe() {
 
 async function enterFamily() {
   if (S.code && S.code !== '?') store.set('popot-code', S.code);
+  await loadLocal(S.familyId);
   await Promise.all([loadChildren(), loadToday()]);
+  setNet(false);                       // le serveur a répondu : on est bien en ligne
   await loadUsage();
-  S.view = 'dashboard';
-  S.offline = false;
+  if (['loading', 'error', 'welcome'].includes(S.view)) S.view = 'dashboard';
   subscribe();
-  flushQueue();
+  syncLocal(true);                     // copie complète sur le téléphone à chaque ouverture
+  if (S.queue.length) flushQueue(true);   // les fêtes sont évaluées juste après le renvoi
+  else checkAch(TRACK_KEYS, true);
   cleanOldPhotos();
-  checkAch(TRACK_KEYS, true);
+  v4Notice();
+}
+
+/* Message unique à la première connexion après le passage à la version 4 (production uniquement).
+   Les nouveaux utilisateurs ne le voient pas : ils n'avaient pas de version précédente. */
+const V4_TEXT = "La version 4 est maintenant déployée. Vous pouvez désormais faire des enregistrements hors connexion, à condition d'activer le mode hors connexion dans les Réglages.";
+function v4Notice() {
+  const sw = window.PoPoTSW;
+  if (!sw || !sw.defaultOff) return;
+  if (store.get('popot-v4-seen', null)) return;
+  store.set('popot-v4-seen', '1');
+  if (!sw.hadCode) return;
+  let el = $('#v4modal');
+  if (!el) { el = document.createElement('div'); el.id = 'v4modal'; el.className = 'cele offm'; document.body.appendChild(el); }
+  el.innerHTML = '<div class="cbox" role="dialog" aria-modal="true" aria-labelledby="v4txt"><div class="wifioff">✨</div>' +
+    '<p id="v4txt">' + esc(V4_TEXT) + '</p><button class="btn" id="v4okBtn" data-act="v4ok">OK</button></div>';
+  el.classList.add('on');
 }
 
 async function loadFamily() {
@@ -1272,37 +1667,137 @@ async function loadFamily() {
   await enterFamily();
 }
 
-/* ===== Envoi des entrées (avec file d'attente hors connexion) ===== */
-function saveQueue() { store.set('popot-queue', S.queue); }
+/* ===================================================================================
+   MODULE 3 – PARTIE 2 : modifications sans connexion et conflits
+   File d'attente ordonnée (clé « popot-queue »). Trois sortes d'éléments, rejoués dans l'ordre où ils ont été faits :
+     - ajout        : la ligne d'entrée elle-même (format d'origine, donc les anciennes files continuent de marcher)
+     - modification : { op:'update', id, family_id, patch:{…}, at }
+     - suppression  : { op:'delete', id, family_id, kind, photo_path, at }
+   =================================================================================== */
+/* La file est écrite dans le stockage du téléphone à chaque changement. Si ce stockage refuse (plein), la file reste en mémoire
+   (rien n'est perdu tant que l'application reste ouverte) et on prévient calmement, sans bloquer l'écran. */
+const PERSIST_MSG = "Le stockage de ce téléphone est plein : vos modifications sont gardées seulement tant que l'application reste ouverte. Libérez de l'espace, puis laissez l'application ouverte jusqu'au retour du réseau.";
+function saveQueue() {
+  try { localStorage.setItem('popot-queue', JSON.stringify(S.queue)); S.persistFail = false; }
+  catch (e) {
+    if (!S.persistFail) { S.persistFail = true; log('Stockage du téléphone plein : la file des modifications reste en mémoire', e && e.message); }
+    toast(PERSIST_MSG, 'err', 12000);
+  }
+}
+// message après un enregistrement gardé sur le téléphone (remplacé par l'avertissement de stockage si l'écriture a échoué)
+function keptToast(text, type, ms) { if (S.persistFail) toast(PERSIST_MSG, 'err', 12000); else toast(text, type, ms); }
+let flushing = false, inFlight = null;
+const attempts = {};
+const WRITE_TIMEOUT = 8000;      // une écriture qui ne répond pas en 8 s est considérée comme sans réseau
+const wt = p => withTimeout(p, WRITE_TIMEOUT);
+const CONFLICT_MSG = "Une de vos modifications a été abandonnée : l'entrée avait été supprimée par l'autre parent.";
+const permanentCode = c => /^(22|23|42)/.test(c) && c !== '42501' && c !== '23505';
+// une entrée encore uniquement dans la file (jamais envoyée) : on la modifie ou on l'annule sur place
+const queuedInsert = id => S.queue.find(x => opType(x) === 'insert' && x.id === id && x !== inFlight);
 
-async function flushQueue() {
-  if (flushing || !S.queue.length || !S.familyId) return;
+function queueInsert(row) { S.queue.push(row); saveQueue(); }
+function queueUpdate(id, patch) {
+  const last = S.queue.slice().reverse().find(x => x.id === id);
+  if (last && opType(last) === 'update' && last !== inFlight) Object.assign(last.patch, patch);
+  else S.queue.push({ op: 'update', id: id, family_id: S.familyId, patch: Object.assign({}, patch), at: new Date().toISOString() });
+  saveQueue();
+}
+function queueDelete(id, old) {
+  S.queue = S.queue.filter(x => !(opType(x) === 'update' && x.id === id && x !== inFlight));   // modifier puis supprimer = supprimer
+  S.queue.push({ op: 'delete', id: id, family_id: S.familyId, kind: old ? old.kind : null, photo_path: (old && old.photo_path) || null, at: new Date().toISOString() });
+  saveQueue();
+}
+
+// un message à montrer au parent concerné (mis de côté si l'application est en arrière-plan)
+function showNotice(text) {
+  log(text);
+  if (document.hidden) store.set('popot-notice', text); else toast(text, 'err', 12000);
+}
+
+async function sendOp(op) {
+  const t = opType(op);
+  if (t === 'insert') return await wt(S.sb.from('entries').insert(op));
+  if (t === 'update') {
+    const r = await wt(S.sb.from('entries').update(op.patch).eq('id', op.id).eq('family_id', op.family_id).select('id'));
+    if (!r.error && Array.isArray(r.data) && r.data.length === 0) r.missing = true;   // l'entrée n'existe plus : la suppression l'emporte
+    return r;
+  }
+  // suppression : si l'entrée a déjà disparu, il ne se passe rien (pas d'erreur)
+  const r = await wt(S.sb.from('entries').delete().eq('id', op.id).eq('family_id', op.family_id));
+  if (!r.error && op.photo_path) removePhotoIfUnused(op.photo_path);
+  return r;
+}
+
+/* Deux fenêtres de l'application sur le même téléphone partagent la même file : un seul envoi à la fois (verrou du navigateur),
+   et la file est relue juste avant d'envoyer (l'autre fenêtre a peut-être déjà tout envoyé : rien ne doit être renvoyé). */
+function readQueue() { return (store.get('popot-queue', []) || []).filter(x => x && typeof x === 'object'); }
+async function flushQueue(force) {
+  if (flushing || !S.queue.length || !S.familyId || !serverOK(force)) return;
+  if (navigator.locks && navigator.locks.request) {
+    let ran = false;
+    try { await navigator.locks.request('popot-flush', { ifAvailable: true }, async lock => { if (!lock) return; ran = true; await flushQueueLocked(force); }); }
+    catch (e) { if (!ran) await flushQueueLocked(force); }
+    return;
+  }
+  await flushQueueLocked(force);
+}
+window.addEventListener('storage', ev => {      // l'autre fenêtre a modifié la file
+  if (ev.key === 'popot-queue' && !flushing && !S.persistFail) { S.queue = readQueue(); renderBanner(); if (S.familyId) showLocalNow(); }
+});
+async function flushQueueLocked(force) {
+  if (flushing) return;
+  if (!S.persistFail) S.queue = readQueue();     // (si le stockage refuse l'écriture, la file en mémoire est la seule à jour)
+  if (!S.queue.length || !S.familyId || !serverOK(force)) { renderBanner(); return; }
   flushing = true;
+  let done = 0, conflicts = 0, dropped = 0;
   try {
-    for (const row of S.queue.slice()) {
-      const r = await S.sb.from('entries').insert(row);
-      if (r.error && r.error.code !== '23505') {
-        const f = frError(r.error);
-        if (['offline', 'down', 'quota', 'auth'].includes(f.kind)) { log("Envoi différé impossible : " + f.text, r.error.message); break; }
-        log("Une entrée en attente a été abandonnée : " + f.text, r.error.message);
+    while (S.queue.length) {
+      const op = S.queue[0], t = opType(op), key = t + ':' + op.id;
+      inFlight = op;
+      let r;
+      try { r = await sendOp(op); } catch (e) { r = { error: e }; }
+      inFlight = null;
+      if (r.error && !(t === 'insert' && r.error.code === '23505')) {
+        const f = frError(r.error), code = String(r.error.code || '');
+        if (['offline', 'down', 'quota', 'auth'].includes(f.kind)) {
+          log("Envoi différé impossible, nouvel essai plus tard : " + f.text, r.error.message);
+          if (f.kind === 'offline' || f.kind === 'down') setNet(true);
+          break;                                   // on garde tout, dans l'ordre, pour plus tard
+        }
+        attempts[key] = (attempts[key] || 0) + 1;
+        if (!permanentCode(code) && attempts[key] < 5) { log("Envoi différé : erreur, nouvel essai plus tard : " + f.text, r.error.message); break; }
+        log("Une modification en attente a été abandonnée : " + f.text, r.error.message);
+        dropped++;
+      } else if (r.missing) {
+        conflicts++;
+        log("Modification abandonnée : l'entrée " + op.id + " avait été supprimée par l'autre parent");
+      } else {
+        done++;
+        if (netDown) setNet(false);
       }
-      S.queue = S.queue.filter(x => x.id !== row.id);
-      saveQueue();
+      S.queue = S.queue.filter(x => x !== op);     // retiré seulement après la réponse du serveur
+      saveQueue(); renderBanner();
     }
   } finally {
-    flushing = false;
+    flushing = false; inFlight = null;
     renderBanner();
-    refreshData();
   }
+  if (conflicts) showNotice(conflicts === 1 ? CONFLICT_MSG : conflicts + " de vos modifications ont été abandonnées : les entrées avaient été supprimées par l'autre parent.");
+  await refreshData(true);
+  if (done + conflicts + dropped > 0) checkAch(TRACK_KEYS, true);     // fêtes évaluées juste après le renvoi
 }
 
 async function addEntry(row) {
   row.id = uuid();
-  const r = await S.sb.from('entries').insert(row);
-  if (!r.error || r.error.code === '23505') return { ok: true };
+  if (!serverOK()) { queueInsert(row); log('Entrée gardée en attente : pas de connexion'); return { ok: true, queued: true }; }
+  let r;
+  try { r = await wt(S.sb.from('entries').insert(row)); } catch (e) { r = { error: e }; }
+  if (!r.error || r.error.code === '23505') { mirrorUpsert(row); return { ok: true }; }
   const f = frError(r.error);
   if (f.kind === 'offline' || f.kind === 'down') {
-    S.queue.push(row); saveQueue();
+    if (!offlineModeOn()) { writeRefused(r.error); return { ok: false }; }
+    setNet(true);
+    queueInsert(row);
     log('Entrée gardée en attente : ' + f.text, r.error.message);
     return { ok: true, queued: true };
   }
@@ -1310,9 +1805,20 @@ async function addEntry(row) {
   return { ok: false };
 }
 
+// l'écran se met à jour tout de suite avec ce qui est sur le téléphone (sans attendre la réponse, parfois lente, du serveur)
+function showLocalNow() { if (S.familyId) { S.today = todayFromLocal(); render(); } }
+const QUEUED_MSG = 'Enregistré sur ce téléphone, il sera envoyé dès que la connexion revient';
+
+// verrou : un double appui sur « Enregistrer » ne crée jamais deux entrées
 async function saveForm() {
+  if (S.saving) return;
+  S.saving = true;
+  try { await saveFormInner(); } finally { S.saving = false; }
+}
+async function saveFormInner() {
   const f = S.form;
   if (!f || !S.childId) return;
+  if (blockedOffline()) return;
   const btn = $('#saveBtn');
   btn.disabled = true;
   const when = $('#when').value;
@@ -1333,7 +1839,7 @@ async function saveForm() {
   if (f.editId) { await saveEdit(f, row); btn.disabled = false; return; }
   let photoNote = null;
   if (S.photo) {
-    if (!navigator.onLine) photoNote = 'Hors connexion : l\'entrée est enregistrée sans la photo';
+    if (!serverOK()) photoNote = 'Hors connexion : l\'entrée est enregistrée sans la photo';   // les photos restent réservées à la connexion
     else {
       const path = S.familyId + '/' + uuid() + '.jpg';
       const perr = await uploadPhoto(path, S.photo.blob);
@@ -1348,13 +1854,11 @@ async function saveForm() {
   setPhoto(null);
   closeSheet();
   if (r.queued) {
-    S.today = [row].concat(S.today).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
-    S.offline = !navigator.onLine;
-    toast('Enregistré sur ce téléphone, il sera envoyé dès que la connexion revient');
-    render();
+    keptToast(photoNote ? photoNote + '. Elle sera envoyée dès que la connexion revient' : QUEUED_MSG, null, photoNote ? 5000 : 0);
+    showLocalNow(); await refreshData();
   } else {
     if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
-    await refreshData();
+    showLocalNow(); await refreshData();
     checkAch(achKeysFor(row.kind), true);
   }
 }
@@ -1364,7 +1868,7 @@ async function saveCouche(f, base, btn) {
   if (!f.pipi && !f.caca) { toast('Cochez au moins Pipi ou Caca', 'err'); btn.disabled = false; return; }
   let photoNote = null;
   if (S.photo) {
-    if (!navigator.onLine) photoNote = "Hors connexion : l'entrée est enregistrée sans la photo";
+    if (!serverOK()) photoNote = "Hors connexion : l'entrée est enregistrée sans la photo";
     else {
       const path = S.familyId + '/' + uuid() + '.jpg';
       const perr = await uploadPhoto(path, S.photo.blob);
@@ -1385,21 +1889,21 @@ async function saveCouche(f, base, btn) {
   setPhoto(null);
   closeSheet();
   if (queued) {
-    S.today = rows.concat(S.today).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
-    S.offline = !navigator.onLine;
-    toast('Enregistré sur ce téléphone, il sera envoyé dès que la connexion revient');
-    render();
+    keptToast(photoNote ? photoNote + '. Elle sera envoyée dès que la connexion revient' : QUEUED_MSG, null, photoNote ? 5000 : 0);
+    showLocalNow(); await refreshData();
   } else {
     if (failed) toast("Une partie de la couche n'a pas pu être enregistrée (voir le journal)", 'err');
     else if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
-    await refreshData();
+    showLocalNow(); await refreshData();
     checkAch(['pipi', 'caca'].filter(k => f[k]), true);
   }
 }
 
-/* Une photo partagée par un pipi et un caca ne part que quand plus aucune entrée ne l'utilise */
+/* Une photo partagée par un pipi et un caca ne part que quand plus aucune entrée ne l'utilise
+   (ni sur le serveur, ni parmi les ajouts encore en attente sur ce téléphone) */
 async function removePhotoIfUnused(path) {
   if (!path) return;
+  if (S.queue.some(x => opType(x) !== 'delete' && (x.photo_path === path || (x.patch && x.patch.photo_path === path)))) return;
   try {
     const r = await S.sb.from('entries').select('id', { count: 'exact', head: true }).eq('photo_path', path);
     if (r.error || (r.count || 0) > 0) return;
@@ -1413,14 +1917,21 @@ async function saveEdit(f, row) {
   const payload = { occurred_at: row.occurred_at, comment: row.comment, color: null, texture: null, quantity_drunk: null, quantity_eaten: null, temperature: null };
   ['color', 'texture', 'quantity_drunk', 'quantity_eaten', 'temperature'].forEach(k => { if (row[k] !== undefined) payload[k] = row[k]; });
   // entrée encore en attente d'envoi sur ce téléphone : on modifie la copie locale
-  const q = S.queue.find(x => x.id === id);
+  const q = queuedInsert(id);
   if (q) {
     Object.assign(q, payload); saveQueue();
-    const t = S.today.find(x => x.id === id); if (t) Object.assign(t, payload);
-    S.today.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
-    setPhoto(null); closeSheet(); toast('Modifié ✔'); render(); return;
+    setPhoto(null); closeSheet(); toast('Modifié ✔'); showLocalNow(); await refreshData(); return;
   }
-  if (!navigator.onLine) { toast('Modification impossible hors connexion, réessayez quand le réseau revient', 'err'); return; }
+  // sans connexion : la modification entre dans la file (règle : la dernière modification envoyée gagne)
+  const saveLater = async note => {
+    delete payload.photo_path;
+    queueUpdate(id, payload);
+    setPhoto(null); closeSheet();
+    keptToast(note ? note + '. La modification sera envoyée dès que la connexion revient' : 'Modification gardée sur ce téléphone, elle sera envoyée dès que la connexion revient', null, note ? 5000 : 0);
+    showLocalNow(); await refreshData();
+  };
+  const photoTouched = !!S.photo || !!(f.photoGone && f.photoPath);
+  if (!serverOK()) return saveLater(photoTouched ? "Hors connexion : la photo n'a pas été modifiée" : null);
   let photoNote = null, oldToRemove = null;
   if (S.photo) {
     const path = S.familyId + '/' + uuid() + '.jpg';
@@ -1428,33 +1939,74 @@ async function saveEdit(f, row) {
     if (perr) { log('Photo non envoyée : ' + frError(perr).text, perr.message); photoNote = "La photo n'a pas pu être envoyée (voir le journal), le reste est modifié"; }
     else { payload.photo_path = path; oldToRemove = f.photoPath; }
   } else if (f.photoGone && f.photoPath) { payload.photo_path = null; oldToRemove = f.photoPath; }
-  const r = await S.sb.from('entries').update(payload).eq('id', id);
+  let r;
+  try { r = await wt(S.sb.from('entries').update(payload).eq('id', id).select('id')); } catch (e) { r = { error: e }; }
   if (r.error) {
     if (payload.photo_path) S.sb.storage.from('photos').remove([payload.photo_path]);
+    if (isNetErr(r.error) && !offlineModeOn()) return writeRefused(r.error);
+    if (isNetErr(r.error)) { setNet(true); log("Modification gardée en attente : " + frError(r.error).text, r.error.message); return saveLater(photoTouched ? "La photo n'a pas été modifiée" : null); }
     return fail(r.error, "Modification d'une entrée");
   }
+  if (Array.isArray(r.data) && r.data.length === 0) {       // l'autre parent a supprimé l'entrée entre-temps : la suppression l'emporte
+    if (payload.photo_path) S.sb.storage.from('photos').remove([payload.photo_path]);
+    setPhoto(null); closeSheet(); mirrorDelete(id);
+    showNotice(CONFLICT_MSG);
+    showLocalNow(); await refreshData();
+    return;
+  }
+  mirrorPatch(id, payload);
   if (oldToRemove) removePhotoIfUnused(oldToRemove);
   setPhoto(null);
   closeSheet();
   if (photoNote) toast(photoNote, 'err'); else toast('Modifié ✔');
-  await refreshData();
+  showLocalNow(); await refreshData();
   checkAch(achKeysFor(row.kind), true);
 }
 
+let deleting = false;
 async function deleteEntry(id) {
+  if (deleting) return;
+  deleting = true;
+  try { await deleteEntryInner(id); } finally { deleting = false; }
+}
+async function deleteEntryInner(id) {
+  if (blockedOffline()) return;
   if (!confirm("Supprimer définitivement cette entrée ?\nCette action est irréversible.")) return;
   const old = findEntry(id);
-  const r = await S.sb.from('entries').delete().eq('id', id);
-  if (r.error) return fail(r.error, "Suppression d'une entrée");
+  // ajout jamais envoyé : on annule simplement l'ajout en attente
+  const q = queuedInsert(id);
+  if (q) {
+    S.queue = S.queue.filter(x => x !== q); saveQueue();
+    closeSheet(); toast('Entrée supprimée'); showLocalNow(); await refreshData();
+    return;
+  }
+  const later = async () => {
+    queueDelete(id, old);
+    closeSheet();
+    keptToast('Suppression gardée sur ce téléphone, elle sera envoyée dès que la connexion revient');
+    showLocalNow(); await refreshData();
+  };
+  if (!serverOK()) return later();
+  let r;
+  try { r = await wt(S.sb.from('entries').delete().eq('id', id)); } catch (e) { r = { error: e }; }
+  if (r.error) {
+    if (isNetErr(r.error) && !offlineModeOn()) return writeRefused(r.error);
+    if (isNetErr(r.error)) { setNet(true); log("Suppression gardée en attente : " + frError(r.error).text, r.error.message); return later(); }
+    return fail(r.error, "Suppression d'une entrée");
+  }
+  mirrorDelete(id);
   if (old && old.photo_path) removePhotoIfUnused(old.photo_path);
   closeSheet();
   toast('Entrée supprimée');
-  await refreshData();
+  showLocalNow(); await refreshData();
   if (old) checkAch(achKeysFor(old.kind), true);
 }
 
 /* ===== Famille : créer, rejoindre, partager, quitter ===== */
+const needNet = () => { if (serverOK()) return true; toast('Cette action nécessite une connexion internet', 'err'); return false; };
+
 async function createFamily() {
+  if (!needNet()) return;
   const name = $('#newName').value.trim();
   const r = await S.sb.rpc('create_family', { p_first_name: name || null });
   if (r.error) return fail(r.error, 'Création de la famille');
@@ -1467,6 +2019,7 @@ async function createFamily() {
 }
 
 async function joinFamily() {
+  if (!needNet()) return;
   const code = $('#joinCode').value.trim().toUpperCase().replace(/\s+/g, '');
   if (code.length < 4) return toast('Saisissez le code famille', 'err');
   const r = await S.sb.rpc('join_family', { p_code: code });
@@ -1496,7 +2049,8 @@ async function copyText(text, okMsg) {
 }
 
 async function leaveFamily() {
-  const extra = S.queue.length ? '\n' + S.queue.length + ' entrée(s) en attente d\'envoi seront perdues.' : '';
+  if (!needNet()) return;
+  const nq = S.queue.length, extra = nq ? '\n' + nq + ' ' + plur(nq, "modification en attente d'envoi sera perdue", "modifications en attente d'envoi seront perdues") + '.' : '';
   if (!confirm('Se déconnecter de cette famille sur ce téléphone ?\nVous pourrez la rejoindre à nouveau avec son code.' + extra)) return;
   if (S.user) {
     const r = await S.sb.from('family_members').delete().eq('user_id', S.user.id).eq('family_id', S.familyId);
@@ -1505,12 +2059,14 @@ async function leaveFamily() {
   if (S.channel) { S.sb.removeChannel(S.channel); S.channel = null; }
   S.familyId = null; S.code = null; S.children = []; S.childId = null; S.today = []; S.queue = [];
   saveQueue(); store.del('popot-cache'); store.del('popot-child'); store.del('popot-code');
+  idb.del(localKey(S.local.familyId)); S.local = emptyLocal(null);
   S.view = 'welcome';
   closeSheet();
   render();
 }
 
 async function addChild() {
+  if (!needNet()) return;
   const name = prompt("Prénom du nouvel enfant (laisser vide pour rester anonyme)", '');
   if (name === null) return;
   const r = await S.sb.from('children').insert({ family_id: S.familyId, first_name: name.trim() || null }).select().single();
@@ -1522,6 +2078,7 @@ async function addChild() {
 }
 
 async function renameChild(id) {
+  if (!needNet()) return;
   const c = S.children.find(x => x.id === id);
   if (!c) return;
   const name = prompt('Prénom de ' + c.label + ' (laisser vide pour rester anonyme)', c.first_name || '');
@@ -1533,60 +2090,126 @@ async function renameChild(id) {
 }
 
 /* ===== Démarrage ===== */
-async function boot() {
-  S.view = 'loading'; render();
-  try {
-    if (!S.sb) {
-      if (!window.supabase) throw new Error('Failed to fetch (bibliothèque non chargée)');
-      S.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
-      S.sb.auth.onAuthStateChange(ev => {
-        if (ev === 'SIGNED_OUT' && S.familyId && !S.rebooting) {
-          S.rebooting = true;
-          log('Info : la connexion a expiré, reconnexion automatique');
-          boot().then(() => { S.rebooting = false; }, () => { S.rebooting = false; });
-        }
-      });
-    }
-    const g = await S.sb.auth.getSession();
-    let session = g.data && g.data.session;
-    if (g.error && !session) {
-      const f0 = frError(g.error);
-      if (f0.kind === 'offline' || f0.kind === 'down') throw g.error;
-      log('Info : la connexion mémorisée sur ce téléphone était inutilisable, nouvelle connexion automatique', g.error.message);
-    }
-    if (!session) {
-      const a = await S.sb.auth.signInAnonymously();
-      if (a.error) throw a.error;
-      session = a.data.session;
-      log('Info : nouvelle connexion automatique créée sur ce téléphone');
-    }
-    S.user = session.user;
-    await loadFamily();
-    if (S.view === 'welcome') {
-      const saved = store.get('popot-code', null);
-      if (saved) {
-        const j = await S.sb.rpc('join_family', { p_code: saved });
-        if (j.error) {
-          if (frError(j.error).kind === 'code') { store.del('popot-code'); log("Info : le code famille mémorisé n'existe plus"); }
-          else throw j.error;
-        } else {
-          log('Info : famille retrouvée automatiquement grâce au code mémorisé');
-          await loadFamily();
-        }
+const BOOT_TIMEOUT = 12000;
+const FIRST_RUN_MSG = "Première ouverture : une connexion internet est nécessaire pour créer ou rejoindre une famille. Connectez-vous à internet (Wi-Fi ou données mobiles), puis appuyez sur Réessayer.";
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('Failed to fetch (délai dépassé)')), ms);
+    promise.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
+}
+// recharge la bibliothèque de la base si elle n'avait pas pu être chargée (ouverture sans réseau)
+function ensureLib() {
+  if (window.supabase) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = CDN_LIB;
+    sc.onload = () => window.supabase ? resolve() : reject(new Error('Failed to fetch (bibliothèque non chargée)'));
+    sc.onerror = () => reject(new Error('Failed to fetch (bibliothèque non chargée)'));
+    document.head.appendChild(sc);
+  });
+}
+
+// la partie qui a besoin du réseau : connexion, famille, premières données
+async function onlineBoot() {
+  await ensureLib();
+  if (!S.sb) {
+    S.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+    S.sb.auth.onAuthStateChange(ev => {
+      if (ev === 'SIGNED_OUT' && S.familyId && !S.rebooting) {
+        S.rebooting = true;
+        log('Info : la connexion a expiré, reconnexion automatique');
+        boot().then(() => { S.rebooting = false; }, () => { S.rebooting = false; });
+      }
+    });
+  }
+  const g = await S.sb.auth.getSession();
+  let session = g.data && g.data.session;
+  if (g.error && !session) {
+    const f0 = frError(g.error);
+    if (f0.kind === 'offline' || f0.kind === 'down') throw g.error;
+    log('Info : la connexion mémorisée sur ce téléphone était inutilisable, nouvelle connexion automatique', g.error.message);
+  }
+  if (!session) {
+    const a = await S.sb.auth.signInAnonymously();
+    if (a.error) throw a.error;
+    session = a.data.session;
+    log('Info : nouvelle connexion automatique créée sur ce téléphone');
+  }
+  S.user = session.user;
+  S.confirmed = true;
+  await loadFamily();
+  if (S.view === 'welcome') {
+    const saved = store.get('popot-code', null);
+    if (saved) {
+      const j = await S.sb.rpc('join_family', { p_code: saved });
+      if (j.error) {
+        if (frError(j.error).kind === 'code') { store.del('popot-code'); log("Info : le code famille mémorisé n'existe plus"); }
+        else throw j.error;
+      } else {
+        log('Info : famille retrouvée automatiquement grâce au code mémorisé');
+        await loadFamily();
       }
     }
+  }
+}
+
+// démarrage depuis ce qui est enregistré sur le téléphone (copie locale)
+async function startFromLocal(c) {
+  await Promise.race([loadLocal(c.familyId), new Promise(r => setTimeout(r, 2500))]);
+  S.familyId = c.familyId; S.code = c.code; S.children = c.children || []; S.childId = c.childId;
+  S.today = todayFromLocal();
+  S.view = 'dashboard';
+}
+async function boot() {
+  const c0 = store.get('popot-cache', null), haveLocal = !!(c0 && c0.familyId);
+  S.view = 'loading'; render();
+  /* On affiche TOUT DE SUITE la copie du téléphone (s'il y en a une) ; le réseau est contacté ensuite, sans bloquer l'écran.
+     Premier lancement (rien sur le téléphone) : comme avant, on attend le réseau. */
+  if (haveLocal && !S.familyId) { await startFromLocal(c0); render(); }
+  if (!navigator.onLine) setNet(true, !haveLocal);    // sans réseau : la fenêtre d'information s'affiche (s'il y a des données à montrer)
+  try {
+    if (!navigator.onLine) throw new Error('Failed to fetch (hors connexion)');
+    await withTimeout(onlineBoot(), BOOT_TIMEOUT);
   } catch (err) {
     const f = frError(err), c = store.get('popot-cache', null);
     log('Démarrage : ' + f.text, err && err.message);
     if ((f.kind === 'offline' || f.kind === 'down') && c && c.familyId) {
-      S.familyId = c.familyId; S.code = c.code; S.children = c.children || []; S.childId = c.childId;
-      S.view = 'dashboard'; S.offline = true;
-      toast(f.text, 'err');
+      if (!S.familyId) await startFromLocal(c);
+      S.view = 'dashboard';
+      setNet(true);
+    } else if (f.kind === 'offline' || f.kind === 'down') {
+      S.view = 'error'; S.errText = FIRST_RUN_MSG;     // tout premier lancement : il faut du réseau
+      setNet(true, true);
+    } else if (haveLocal && S.familyId) {
+      S.view = 'dashboard'; toast(f.text, 'err');       // erreur inattendue mais la copie du téléphone reste utilisable
     } else {
       S.view = 'error'; S.errText = f.text;
     }
   }
   render();
+}
+
+// le réseau est (peut-être) revenu : on renvoie les modifications en attente puis on rafraîchit
+let probing = false;
+async function probe() {
+  if (probing || !navigator.onLine) return;
+  probing = true;
+  try {
+    if (S.view === 'error' && !S.familyId) { probing = false; await boot(); return; }
+    if (!S.user) { await withTimeout(onlineBoot(), BOOT_TIMEOUT); render(); }
+    else if (S.queue.length) await flushQueue(true);
+    else await refreshData(true);
+  } catch (err) { if (!netFail(err)) log('Reconnexion impossible', err && err.message); }
+  finally { probing = false; }
+}
+
+async function toggleOfflineMode() {
+  const sw = window.PoPoTSW;
+  if (!sw || !sw.supported) return;
+  if (sw.off) { await sw.enable(); toast('Mode hors connexion activé'); }
+  else { await sw.disable(); toast('Mode hors connexion désactivé : l\'application fonctionne à nouveau uniquement avec une connexion'); }
+  settingsSheet(); renderBanner();
 }
 
 /* ===== Clics et saisies ===== */
@@ -1596,10 +2219,14 @@ document.addEventListener('click', async ev => {
   const a = el.dataset.act;
   switch (a) {
     case 'close': closeSheet(); break;
+    case 'offok': hideOffModal(); break;
+    case 'v4ok': { const e = $('#v4modal'); if (e) { e.classList.remove('on'); e.innerHTML = ''; } break; }
+    case 'swtoggle': await toggleOfflineMode(); break;
     case 'retry': boot(); break;
     case 'create': el.disabled = true; await createFamily(); el.disabled = false; break;
     case 'join': el.disabled = true; await joinFamily(); el.disabled = false; break;
     case 'add':
+      if (blockedOffline()) break;
       if (!S.childId) { toast("Aucun enfant dans cette famille", 'err'); break; }
       formSheet(el.dataset.kind); break;
     case 'child':
@@ -1648,7 +2275,7 @@ document.addEventListener('click', async ev => {
     case 'vlevel':
       if (S.form) { const n = Number(el.dataset.n); S.form.level = S.form.level === n ? 0 : n; paintLevel(); }
       break;
-    case 'edit': { const ee = findEntry(el.dataset.id); if (ee) { closeSheet(); formSheet(ee.kind, ee); } break; }
+    case 'edit': { if (blockedOffline()) break; const ee = findEntry(el.dataset.id); if (ee) { closeSheet(); formSheet(ee.kind, ee); } break; }
     case 'save': await saveForm(); break;
     case 'open': { entrySheet(el.dataset.id); const pe = findEntry(el.dataset.id); if (pe && pe.photo_path) showEntryPhoto(pe.photo_path); break; }
     case 'photoremove':
@@ -1676,12 +2303,17 @@ document.addEventListener('change', async ev => {
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && ev.target && ev.target.id === 'joinCode') { ev.preventDefault(); joinFamily(); }
   if (ev.key === 'Enter' && ev.target && ev.target.id === 'newName') { ev.preventDefault(); createFamily(); }
-  if (ev.key === 'Escape') closeSheet();
+  if (ev.key === 'Escape') { hideOffModal(); closeSheet(); }
 });
 
-window.addEventListener('online', () => { renderBanner(); flushQueue(); refreshData(); });
-window.addEventListener('offline', renderBanner);
-document.addEventListener('visibilitychange', () => { if (!document.hidden && S.familyId) { flushQueue(); refreshData(); } });
+window.addEventListener('online', () => { renderBanner(); probe(); });
+window.addEventListener('offline', () => setNet(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const n = store.get('popot-notice', null);
+  if (n) { store.del('popot-notice'); toast(n, 'err', 12000); }
+  if (S.familyId) probe();
+});
 
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* rien */ }
 todayLog();
