@@ -1,0 +1,2297 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PoPoT</title>
+<meta name="theme-color" content="#f4f7fb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PoPoT">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E👶%3C/text%3E%3C/svg%3E">
+<script>
+/* ===== MODULE 3 – PARTIE 1 : mode hors connexion (service worker) =====
+   Script volontairement séparé du reste : même si l'application plante, le « interrupteur de sécurité » fonctionne.
+   - ?nosw=1 : désinstalle le service worker, vide ses caches et le garde désactivé (réactivable dans Réglages ou avec ?nosw=0)
+   - Réglages > « Désactiver le mode hors connexion » : même chose depuis l'application */
+(function () {
+  var KEY = 'popot-sw-off';
+  var api = window.PoPoTSW = { supported: false, off: false, ready: Promise.resolve(), error: null };
+  function flag() { try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; } }
+  function setFlag(v) { try { if (v) localStorage.setItem(KEY, '1'); else localStorage.removeItem(KEY); } catch (e) { /* rien */ } }
+  api.supported = !!(navigator.serviceWorker) && /^https?:$/.test(location.protocol);
+  api.off = flag();
+  function wipe() {
+    var jobs = [];
+    try {
+      if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+      if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return /^popot-/.test(k); }).map(function (k) { return caches.delete(k); })); }));
+    } catch (e) { api.error = String(e && e.message || e); }
+    // le service worker encore actif peut recréer une réserve vide pendant que la page se charge : on repasse après coup
+    [700, 1400].forEach(function (ms) { setTimeout(function () { try { if (window.caches) caches.keys().then(function (ks) { ks.filter(function (k) { return /^popot-/.test(k); }).forEach(function (k) { caches.delete(k); }); }); } catch (e) { /* rien */ } }, ms); });
+    return Promise.all(jobs).catch(function (e) { api.error = String(e && e.message || e); });
+  }
+  function register() {
+    if (!api.supported) return Promise.resolve(null);
+    return navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' })
+      .catch(function (e) { api.error = String(e && e.message || e); return null; });
+  }
+  api.disable = function () { setFlag(true); api.off = true; return wipe(); };
+  api.enable = function () { setFlag(false); api.off = false; return register(); };
+  api.state = function () {
+    if (!api.supported) return Promise.resolve('unsupported');
+    if (api.off) return Promise.resolve('off');
+    return navigator.serviceWorker.getRegistration().then(function (r) { return r && r.active ? 'ready' : 'installing'; }, function () { return 'installing'; });
+  };
+  var m = /[?&]nosw=([01])(?:&|$)/.exec(location.search), cleanUrl = false;
+  if (m) {
+    cleanUrl = true;
+    if (m[1] === '1') { setFlag(true); api.off = true; api.ready = wipe(); }
+    else { setFlag(false); api.off = false; }
+  }
+  if (cleanUrl) {
+    try { history.replaceState(null, '', location.pathname + location.search.replace(/([?&])nosw=[01](&|$)/, function (x, a, b) { return b ? a : ''; }).replace(/^&/, '?') + location.hash); } catch (e) { /* rien */ }
+  }
+  if (api.supported && !api.off) window.addEventListener('load', function () { api.ready = register(); });
+})();
+</script>
+<style>
+:root{
+  --bg:#f4f7fb; --card:#ffffff; --ink:#1d2433; --soft:#667085; --line:#e1e7ef;
+  --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e; --temperature:#e8590c;
+  --accent:#3b5bdb; --danger:#c62828; --s1:#e5527e; --s2:#0f9d8a;
+  --warn-bg:#fff3cd; --warn-ink:#6b4e00;
+  --off-bg:#f9e3e4; --off-ink:#a8434a;
+  --radius:22px;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#11151d; --card:#1a202b; --ink:#eef2f8; --soft:#9aa6b8; --line:#2a3342;
+         --accent:#6f8cff; --warn-bg:#4a3a10; --warn-ink:#ffe08a; --off-bg:#4a2a2e; --off-ink:#f4a6aa; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.35}
+body{min-height:100dvh;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#app{max-width:560px;margin:0 auto;padding:14px 16px 48px}
+h1,h2,h3{margin:0}
+h2{font-size:21px}
+h3{font-size:16px;margin-top:22px}
+.soft{color:var(--soft)}
+.small{font-size:13px}
+button{font:inherit;color:inherit}
+
+/* barre du haut */
+.lft{display:flex;align-items:center;gap:12px}
+.dbd{z-index:25}
+.drawer{position:fixed;top:0;bottom:0;left:0;width:min(82vw,320px);background:var(--card);z-index:30;transform:translateX(-105%);transition:transform .2s ease;
+  padding:calc(env(safe-area-inset-top) + 16px) 0 16px;overflow:auto;box-shadow:4px 0 24px rgba(0,0,0,.25)}
+.drawer.on{transform:none}
+@media (prefers-reduced-motion:reduce){.drawer{transition:none}}
+.dh{font-size:22px;font-weight:800;padding:6px 20px 14px}
+.mi{display:flex;gap:12px;align-items:center;border:0;background:none;color:inherit;font:inherit;font-size:17px;padding:13px 20px;text-align:left;cursor:pointer;width:100%}
+.mi.sub{padding-left:34px}
+.mi.on{background:color-mix(in srgb,var(--accent) 15%,var(--card));font-weight:700}
+.mt{padding:18px 20px 4px;font-weight:800;font-size:14px;color:var(--soft)}
+.icon.sm{width:40px;height:40px;font-size:16px}
+.icon:disabled{opacity:.35;cursor:default}
+.pnav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 12px}
+.ptitle{flex:1;text-align:center;font-weight:800;font-size:16px}
+.ptitle::first-letter{text-transform:uppercase}
+.chartcard{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 6px 6px}
+.chartcard svg{display:block;width:100%;height:auto}
+.chartcard svg text{fill:var(--soft);font-size:10px;font-family:inherit}
+.chartcard .gl{stroke:var(--line);stroke-width:1}
+.chartcard .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;opacity:.85}
+.chartcard .dt{stroke:var(--card);stroke-width:1.5}
+.chartcard .emp{fill:none;stroke:var(--soft);stroke-width:1.2}
+.chartcard .selcol{fill:color-mix(in srgb,var(--accent) 14%,transparent)}
+.chartcard .hit{fill:transparent;cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;padding:0 10px 6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.detail{margin-top:12px}
+.ach{margin-bottom:12px;display:flex;flex-direction:column;gap:8px}
+.ah{display:flex;align-items:center;gap:12px}
+.ah .ae{font-size:30px}
+.ah .at{margin-left:auto;font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.bar{height:10px;border-radius:999px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.small{font-size:13px}
+.cups{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:4px}
+.ci{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;color:var(--soft);font-variant-numeric:tabular-nums}
+.ci.got{color:var(--ink);font-weight:700}
+.cup.lock{filter:grayscale(1);opacity:.28}
+.cele{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);padding:20px}
+.cele.on{display:flex}
+.cele canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+.cbox{position:relative;background:var(--card);border-radius:26px;padding:26px 22px 20px;max-width:360px;width:100%;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;animation:pop .45s cubic-bezier(.2,1.4,.4,1)}
+.cbox h2{margin:4px 0 0;font-size:30px}
+.cbox p{margin:0 0 10px;font-size:17px}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.cbox{animation:none}}
+.chartcard .ref{stroke:var(--temperature);stroke-width:1;stroke-dasharray:4 3;opacity:.8}
+.chartcard .ring{fill:color-mix(in srgb,var(--temperature) 25%,transparent)}
+button.tl{width:100%;border:0;border-left:0;border-right:0;border-bottom:0;background:none;color:inherit;font:inherit;font-size:14px;text-align:left;cursor:pointer;justify-content:space-between}
+button.tl.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.detail h3{margin:0 0 6px}
+.detail .hint{margin:0;text-align:center}
+.dl{display:flex;gap:12px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.dl .t{font-variant-numeric:tabular-nums;color:var(--soft);min-width:44px}
+.top{display:flex;align-items:center;justify-content:space-between;padding:6px 2px 14px}
+.top .hi{font-size:13px;color:var(--soft);font-weight:600}
+.top .sub{font-size:26px;font-weight:800;letter-spacing:-.01em}
+.icon{border:0;background:var(--card);border:1px solid var(--line);width:46px;height:46px;border-radius:50%;font-size:22px;cursor:pointer}
+
+/* barre du haut : réseau absent (icône Wi-Fi barré, rouge doux) et modifications en attente */
+.banner{display:none;position:sticky;top:0;z-index:10;background:var(--bg);padding:6px 12px;
+  font-size:13px;font-weight:600;text-align:center}
+.banner.on{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;justify-content:center}
+.netoff,.netpend{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 12px}
+.netoff{background:var(--off-bg);color:var(--off-ink)}
+.netoff svg{width:17px;height:17px;flex:none}
+.netpend{background:var(--warn-bg);color:var(--warn-ink)}
+.asof{font-size:13px;color:var(--soft);margin:-6px 0 12px}
+/* bandeau du bas : hors connexion (jamais sur l'écran de bienvenue) ; ne cache aucun bouton grâce au bas de page réservé */
+.offbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:15;min-height:44px;align-items:center;justify-content:center;text-align:center;
+  padding:8px 16px calc(8px + env(safe-area-inset-bottom));background:var(--off-bg);color:var(--ink);border-top:2px solid var(--off-ink);
+  font-size:14px;font-weight:600;line-height:1.35}
+.offbar.on{display:flex}
+body.hasoffbar #app,body.hasoffbar #app.full{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+body.hasoffbar .toast{bottom:calc(76px + env(safe-area-inset-bottom))}
+.offm{z-index:70}
+.offm .cbox p{font-size:16px;line-height:1.4}
+.offm .wifioff{width:44px;height:44px;color:var(--off-ink)}
+.offm .wifioff svg{width:100%;height:100%}
+
+/* tableau de bord */
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px}
+.chip{border:2px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:15px;font-weight:600;cursor:pointer}
+.chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--card))}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.tile{--c:var(--accent);border:2.5px solid var(--c);background:var(--card);
+  background:color-mix(in srgb,var(--c) 13%,var(--card));border-radius:var(--radius);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:10px;
+  transition:transform .08s ease}
+.tile:active{transform:scale(.96)}
+.tile.big{height:auto;min-height:178px}
+.grid .wide{grid-column:1/-1}
+#app.full{display:flex;flex-direction:column;min-height:100dvh;padding-bottom:14px}
+.mosaic{flex:1;min-height:360px;display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
+.mrow{display:flex;gap:10px;min-height:0;min-width:0}
+.mosaic .tile{container-type:size;height:auto;min-width:0;min-height:64px;padding:6px;overflow:hidden}
+.mosaic .tile .em{font-size:clamp(24px,40cqmin,110px)}
+.mosaic .tile .nm{font-size:clamp(12px,11cqmin,24px)}
+.mosaic .tile .meta{font-size:clamp(10px,6cqmin,13px)}
+@container (max-height:110px){.mosaic .tile .meta{display:none}}
+@container (max-height:80px){.mosaic .tile .em{font-size:26px}}
+.tile .em.em2{font-size:44px;letter-spacing:-6px;white-space:nowrap}   /* deux emojis sur une seule ligne (sinon la couche déborde sur petit écran) */
+.mosaic .tile .em.em2{font-size:clamp(20px,24cqmin,60px)}
+@container (max-height:80px){.mosaic .tile .em.em2{font-size:22px}}
+.sw2{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0}
+.sw2 b{display:block}
+.tgl{width:54px;height:32px;border-radius:999px;border:0;background:var(--line);position:relative;cursor:pointer;flex:none}
+.tgl::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;transition:left .15s ease;box-shadow:0 1px 3px #0004}
+.tgl.on{background:var(--accent)}.tgl.on::after{left:25px}
+.info{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--soft);background:none;color:var(--soft);font-weight:700;font-size:13px;line-height:1;cursor:pointer;margin-left:6px;padding:0}
+.tip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--soft);margin:-2px 0 8px}
+.parts{display:flex;gap:10px;margin:12px 0 4px}
+.part{flex:1;border:2.5px solid var(--line);background:var(--card);border-radius:16px;padding:12px 8px;font-weight:800;font-size:16px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px}
+.part span{font-size:30px;line-height:1}
+.part small{font-weight:600;color:var(--soft);font-size:12px}
+.part.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,var(--card))}
+.part.on small{color:var(--ink)}
+.sect{margin-top:4px}
+.tile.small{height:108px}
+.tile .em{font-size:60px;line-height:1}
+.tile.small .em{font-size:34px}
+.tile .nm{font-weight:800;font-size:18px}
+.tile.small .nm{font-size:15px}
+.tile .meta{font-size:12px;color:var(--soft);text-align:center}
+.tile.small .meta{font-size:11px}
+.btn{display:block;width:100%;border:0;border-radius:16px;padding:15px 18px;font-weight:700;font-size:16px;
+  background:var(--accent);color:#fff;cursor:pointer;margin-top:12px}
+.btn.alt{background:var(--card);background:color-mix(in srgb,var(--accent) 12%,var(--card));
+  color:var(--ink);border:2px solid color-mix(in srgb,var(--accent) 40%,transparent)}
+.btn.ghost{background:transparent;color:var(--soft)}
+.btn.danger{background:var(--danger)}
+.btn:disabled{opacity:.55}
+.row{display:flex;gap:10px}
+.row .btn{margin-top:12px}
+.mini{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:6px 10px;font-size:13px;cursor:pointer}
+
+/* champs */
+.inp{width:100%;border:2px solid var(--line);background:var(--bg);color:var(--ink);border-radius:14px;
+  padding:13px 14px;font:inherit;font-size:16px;margin-top:8px}
+.inp:focus{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);border-color:var(--accent)}
+.inp.code{font-family:ui-monospace,Menlo,monospace;letter-spacing:.18em;text-transform:uppercase;text-align:center;font-size:21px}
+textarea.inp{min-height:76px;resize:vertical}
+.lbl{display:block;margin-top:18px;font-weight:700;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-top:14px}
+.card p{margin:6px 0 4px}
+
+/* accueil */
+.hero{text-align:center;padding:26px 0 6px}
+.hero .logo{font-size:64px;line-height:1}
+.hero h1{font-size:34px;font-weight:800;margin-top:6px}
+
+/* choix de couleur */
+.photo-row{display:flex;gap:10px;margin:8px 0 4px}
+.photo-row label{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:2px dashed var(--line);border-radius:14px;padding:12px 6px;font-weight:600;cursor:pointer;text-align:center;font-size:15px}
+.photo-row input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.photo-prev{display:flex;align-items:center;gap:12px;margin-top:8px}
+.photo-prev img,.photo-big{border-radius:14px;object-fit:cover}
+.photo-prev img{width:84px;height:84px}
+.photo-big{width:100%;max-height:360px;margin:8px 0;background:var(--line)}
+.vl{display:flex;gap:6px;margin:8px 0 2px}
+.vl button{flex:1;background:none;border:0;font-size:34px;padding:4px 0;cursor:pointer;filter:grayscale(1);opacity:.35;transition:opacity .15s}
+.vl button.on{filter:none;opacity:1}
+.vlabel{text-align:center;font-weight:700;min-height:24px;margin:0 0 4px}
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 6px;margin:8px 0 4px}
+.swb{background:none;border:0;padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;border-radius:14px}
+.sw{width:50px;height:50px;border-radius:50%;border:2px solid var(--line)}
+.swb.on .sw{outline:4px solid var(--accent);outline-offset:2px}
+.swl{font-size:12.5px;color:var(--soft);text-align:center;line-height:1.15}
+.swb.on .swl{color:var(--ink);font-weight:700}
+
+/* listes */
+.rows{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.row-item{display:flex;gap:12px;align-items:flex-start;text-align:left;width:100%;background:var(--card);
+  border:1px solid var(--line);border-radius:16px;padding:12px 14px;cursor:pointer}
+.row-item .t{font-variant-numeric:tabular-nums;font-weight:700;min-width:46px;color:var(--soft)}
+.row-item .e{font-size:26px;line-height:1}
+.row-item .b{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.row-item .d{font-size:14px;color:var(--soft)}
+.row-item .c{font-size:14px;font-style:italic;overflow-wrap:anywhere}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;border:1px solid var(--line);vertical-align:-1px}
+.day{margin:20px 0 4px;font-size:15px;color:var(--soft);font-weight:700}
+.day::first-letter{text-transform:uppercase}
+.empty{text-align:center;color:var(--soft);padding:26px 10px}
+
+/* fenêtre du bas */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;z-index:20}
+.backdrop.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-width:560px;margin:0 auto;max-height:92dvh;overflow:auto;
+  background:var(--card);border-radius:26px 26px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom));
+  z-index:21;transform:translateY(105%);visibility:hidden;transition:transform .2s ease,visibility .2s}
+.sheet.on{transform:none;visibility:visible}
+.kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.mono{font-family:ui-monospace,Menlo,monospace;letter-spacing:.12em}
+.bigcode{font-family:ui-monospace,Menlo,monospace;font-size:34px;font-weight:800;letter-spacing:.18em;text-align:center;
+  padding:18px 6px;margin:12px 0 4px;background:var(--bg);border-radius:18px;border:2px dashed var(--line)}
+pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radius:12px;padding:12px;font-size:12.5px;max-height:44dvh;overflow:auto}
+
+/* message */
+.toast{position:fixed;left:14px;right:14px;bottom:calc(18px + env(safe-area-inset-bottom));max-width:532px;margin:0 auto;
+  background:#222a38;color:#fff;border-radius:16px;padding:14px 16px;font-weight:600;z-index:40;
+  opacity:0;pointer-events:none;transform:translateY(12px);transition:.2s}
+.toast.on{opacity:1;transform:none}
+.toast.err{background:var(--danger)}
+.center{text-align:center;padding:60px 10px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="banner" class="banner"></div>
+<div id="app"></div>
+<div id="backdrop" class="backdrop" data-act="close"></div>
+<div id="dbackdrop" class="backdrop dbd" data-act="menuclose"></div>
+<nav id="drawer" class="drawer" aria-label="Menu"></nav>
+<div id="sheet" class="sheet" role="dialog" aria-modal="true"></div>
+<div id="toast" class="toast" role="status"></div>
+<div id="offbar" class="offbar" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(() => {
+'use strict';
+
+/* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
+const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
+const VERSION = '4.0';
+const PAGE = 40;
+const CDN_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+const LOCAL_MONTHS = 13;          // durée conservée dans la copie locale du téléphone
+const LOCAL_MAX = 20000;          // garde-fou : nombre maximum d'entrées gardées sur le téléphone
+const FULL_SYNC_EVERY = 5 * 60e3; // copie complète au plus toutes les 5 minutes (sauf au lancement et au retour du réseau)
+
+/* ===== Les choix proposés dans les formulaires ===== */
+const KINDS = {
+  pipi:    { emoji: '💧', label: 'Pipi',    art: 'un pipi' },
+  caca:    { emoji: '💩', label: 'Caca',    art: 'un caca' },
+  couche:  { emoji: '💩💧', label: 'Couche', art: 'une couche' },
+  vomi:    { emoji: '🤢', label: 'Vomi',    art: 'un vomi' },
+  biberon: { emoji: '🍼', label: 'Alimentation', art: 'une alimentation' },
+  temperature: { emoji: '🌡️', label: 'Température', art: 'une température' }
+};
+const COLORS = {
+  pipi: [['jaune très clair', '#fbf3b9'], ['jaune', '#f2d544'], ['jaune foncé / orangé', '#e08a1e'], ['rouge', '#d32f2f']],
+  caca: [['vert foncé', '#787c1f'], ['vert clair', '#b2c25b'], ['marron', '#b4652d'], ['marron foncé', '#7a3413'],
+         ['jaune moutarde', '#f6d447'], ['gris', '#bba094'], ['rouge', '#e03338'], ['noir', '#2b170d']]
+};
+COLORS.vomi = [['blanc', '#f1ece0'], ['marron', '#7a4a24'], ['rouge', '#d32f2f']];
+// anciens libellés gardés uniquement pour bien afficher les entrées déjà enregistrées
+const OLD_COLORS = { vomi: [['jaune moutarde', '#d9a21b'], ['vert', '#5b8a3c'], ['noir', '#1f1f1f'], ['blanc / très pâle', '#f1ece0']] };
+const TEXTURES = ['Normal', 'Mou', 'Liquide', 'Dur', 'Diarrhée'];
+// quantité de vomi : 1 à 5 smileys (stockée dans la colonne « texture »)
+const VLEVELS = ['Petit rejet', 'Moins 1/2 Bib', '1/2 Bib', '+ 1/2 Bib', 'Tout le Bib'];
+
+/* ===== Petits outils ===== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = n => String(n).padStart(2, '0');
+// accord français : 0 et 1 au singulier, 2 et plus au pluriel
+const plur = (n, one, many) => n > 1 ? many : one;
+const hhmm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+const dayKey = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const inputValue = d => dayKey(d) + 'T' + hhmm(d);
+const fmtQ = v => String(Math.round(Number(v) * 10) / 10).replace('.', ',');
+const numOrNull = x => { const v = parseFloat(String(x).replace(',', '.')); return isFinite(v) && v >= 0 ? Math.round(v * 10) / 10 : null; };
+const uuid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.floor(Math.random() * 16); return (c === 'x' ? r : (r & 3 | 8)).toString(16); });
+const dayLabel = d => {
+  const t = new Date(), y = new Date(); y.setDate(t.getDate() - 1);
+  const k = dayKey(d);
+  if (k === dayKey(t)) return "Aujourd'hui";
+  if (k === dayKey(y)) return 'Hier';
+  return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+};
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage indisponible */ } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) { /* rien */ } }
+};
+
+/* ===== Réglage « tuiles adaptatives » (propre à chaque téléphone) ===== */
+const adaptiveOn = () => store.get('popot-adaptive', false) === true;
+const usageKey = () => 'popot-usage-' + S.familyId + '-' + S.childId;
+async function loadUsage() {
+  if (!S.familyId || !S.childId || !adaptiveOn()) return;
+  S.usage = store.get(usageKey(), null) || S.usage || null;
+  if (!serverOK()) return;
+  try {
+    const since = new Date(Date.now() - 10 * 864e5).toISOString();
+    const r = await S.sb.from('entries').select('kind').eq('family_id', S.familyId).eq('child_id', S.childId).gte('occurred_at', since).limit(5000);
+    if (r.error || !r.data) return;
+    const u = {};
+    r.data.forEach(x => { u[x.kind] = (u[x.kind] || 0) + 1; });
+    S.usage = u; store.set(usageKey(), u);
+  } catch (e) { /* on garde les derniers chiffres connus */ }
+}
+
+/* ===== État de l'application ===== */
+const S = {
+  sb: null, user: null, familyId: null, code: null,
+  children: [], childId: null, today: [],
+  hist: { items: [], more: false, loading: false, kind: 'all', childId: null, day: '' },
+  view: 'loading', errText: '', form: null,
+  queue: (store.get('popot-queue', []) || []).filter(x => x && typeof x === 'object'), offline: false,
+  confirmed: false,   // vrai dès que la connexion au serveur est établie (tant que faux : on affiche la copie du téléphone et les ajouts attendent)
+  /* PARTIE 1 : copie locale (miroir du serveur) : entrées des 13 derniers mois, totaux des succès */
+  local: { familyId: null, entries: [], syncedAt: null, fullAt: 0, from: null, totals: null, totalsAt: null }
+};
+let rtTimer = null, toastTimer = null;
+
+/* ===== Journal des erreurs : un seul jour conservé, en français ===== */
+function log(text, tech) {
+  let l = store.get('popot-log', null);
+  if (!l || l.day !== dayKey(new Date())) l = { day: dayKey(new Date()), items: [] };
+  l.items.push({ t: new Date().toISOString(), text: text, tech: String(tech || '') });
+  if (l.items.length > 200) l.items.shift();
+  store.set('popot-log', l);
+}
+function todayLog() {
+  const l = store.get('popot-log', null);
+  if (l && l.day === dayKey(new Date())) return l.items;
+  if (l) store.del('popot-log');
+  return [];
+}
+
+/* ===== Traduction des erreurs techniques en messages clairs ===== */
+function frError(err) {
+  const msg = String((err && (err.message || err.error_description || err.msg)) || err || '');
+  const code = String((err && (err.code || err.error_code)) || '');
+  const status = err && err.status;
+  if (!navigator.onLine) return { kind: 'offline', text: "Pas de connexion internet. Vos modifications sont gardées sur ce téléphone et seront envoyées dès que le réseau revient." };
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg))
+    return { kind: 'down', text: "Le service ne répond pas. Il est peut-être en pause (après une semaine sans utilisation). Veuillez contacter votre administrateur pour qu'il le réactive." };
+  if (/read-only|quota|exceed|disk full|payment required/i.test(msg) || status === 402)
+    return { kind: 'quota', text: "Cette action n'a pas pu être réalisée car le volume de données est trop important. Veuillez contacter votre administrateur." };
+  if (code === 'anonymous_provider_disabled' || /anonymous sign-ins are disabled/i.test(msg))
+    return { kind: 'config', text: "La connexion automatique n'est pas activée sur la base de données. Veuillez contacter votre administrateur." };
+  if (/code famille inconnu/i.test(msg))
+    return { kind: 'code', text: "Ce code famille n'existe pas. Vérifiez-le et réessayez." };
+  if (code === '42501' || /row-level security|permission denied/i.test(msg))
+    return { kind: 'denied', text: "Action non autorisée pour ce téléphone. Essayez de rejoindre à nouveau la famille avec son code." };
+  if (status === 401 || status === 403 || /jwt/i.test(msg))
+    return { kind: 'auth', text: "La session a expiré. Rechargez la page. Si le problème continue, veuillez contacter votre administrateur." };
+  return { kind: 'other', text: "Une erreur inattendue est survenue. Veuillez réessayer ou contacter votre administrateur." };
+}
+function fail(err, ctx) {
+  const f = frError(err);
+  log(ctx + ' : ' + f.text, err && (err.message || err));
+  toast(f.text, 'err');
+  return f;
+}
+
+/* ===== Messages et fenêtre du bas ===== */
+function toast(text, type, ms) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.className = 'toast on ' + (type || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast'; }, ms || (type === 'err' ? 8000 : 2600));
+}
+function openSheet(html) {
+  $('#sheet').innerHTML = html;
+  $('#sheet').classList.add('on');
+  $('#backdrop').classList.add('on');
+  $('#sheet').scrollTop = 0;
+}
+function closeSheet() {
+  $('#sheet').classList.remove('on');
+  $('#backdrop').classList.remove('on');
+  S.form = null;
+}
+/* ===================================================================================
+   MODULE 3 – PARTIE 1 : ouverture et lecture sans connexion
+   (réseau, fenêtre d'information, copie locale des données sur le téléphone)
+   =================================================================================== */
+const WIFI_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+let netDown = false, probeTimer = null;
+// « hors connexion » = le navigateur le dit (navigator.onLine) OU une vraie requête a échoué (navigator.onLine peut se tromper)
+const isOffline = () => netDown || !navigator.onLine;
+// peut-on parler au serveur ? (force = on tente quand même, pour savoir si le réseau est revenu)
+const serverOK = force => !!S.sb && S.confirmed && navigator.onLine && (force === true || !netDown);
+const isNetErr = err => { const k = frError(err).kind; return k === 'offline' || k === 'down'; };
+function netFail(err) { if (isNetErr(err)) { setNet(true); return true; } return false; }
+function setNet(down, quiet) {
+  down = !!down;
+  if (down === netDown) { renderBanner(); return; }
+  netDown = down; S.offline = down;
+  // la fenêtre d'information n'apparaît jamais sur l'écran de bienvenue (rien à montrer) ni quand le mode hors connexion est désactivé
+  if (down) { if (!quiet && S.familyId && offlineModeOn()) showOffModal(); startProbe(); } else { hideOffModal(); stopProbe(); }
+  if (S.familyId && ['dashboard', 'history', 'stats', 'achv'].includes(S.view)) render(); else renderBanner();
+}
+// si le réseau est « faux » (navigator.onLine vrai mais rien ne passe), on réessaie toutes les 15 secondes
+function startProbe() { if (!probeTimer) probeTimer = setInterval(() => { if (navigator.onLine) probe(); }, 15000); }
+function stopProbe() { clearInterval(probeTimer); probeTimer = null; }
+
+const OFF_TEXT = 'Hors connexion : vous voyez les dernières données enregistrées sur ce téléphone. Vos modifications seront envoyées au retour du réseau.';
+function showOffModal() {
+  let el = $('#offmodal');
+  if (!el) { el = document.createElement('div'); el.id = 'offmodal'; el.className = 'cele offm'; document.body.appendChild(el); }
+  if (el.classList.contains('on')) return;
+  el.innerHTML = '<div class="cbox" role="dialog" aria-modal="true" aria-labelledby="offtxt"><div class="wifioff">' + WIFI_OFF + '</div>' +
+    '<p id="offtxt">' + esc(OFF_TEXT) + '</p><button class="btn" id="offokBtn" data-act="offok">OK</button></div>';
+  el.classList.add('on');
+  const b = $('#offokBtn'); if (b) { try { b.focus(); } catch (e) { /* rien */ } }
+}
+function hideOffModal() { const el = $('#offmodal'); if (el) { el.classList.remove('on'); el.innerHTML = ''; } }
+
+// « mode hors connexion » (Réglages) : activé = on peut continuer à saisir sans réseau ; désactivé = l'application ne sert qu'avec une connexion.
+// Les navigateurs sans service worker gardent le fonctionnement « activé ».
+const offlineModeOn = () => { const sw = window.PoPoTSW; return !(sw && sw.supported && sw.off); };
+const OFFBAR_ON = 'Hors connexion : vous pourrez continuer à saisir des entrées.';
+const OFFBAR_OFF = "Hors connexion : vous ne pourrez pas saisir d'entrées.";
+// mode désactivé et sans réseau : ajouter, modifier, supprimer sont refusés (rien n'est mis en file)
+function blockedOffline() {
+  if (offlineModeOn() || !isOffline()) return false;
+  toast(OFFBAR_OFF, 'err'); return true;
+}
+// mode désactivé : un échec réseau pendant une écriture n'est PAS mis en file (si le serveur l'a reçue, le prochain rafraîchissement la montrera)
+function writeRefused(err) {
+  setNet(true);
+  log("Écriture refusée (mode hors connexion désactivé) : " + frError(err).text, err && err.message);
+  toast(OFFBAR_OFF, 'err');
+}
+function renderBanner() {
+  const parts = [];
+  if (isOffline() && offlineModeOn()) parts.push('<span class="netoff" id="netoff">' + WIFI_OFF + 'Hors connexion</span>');
+  if (S.queue.length) parts.push('<span class="netpend" id="netpend">⏳ ' + S.queue.length + ' ' + plur(S.queue.length, 'modification', 'modifications') + " en attente d'envoi</span>");
+  const b = $('#banner');
+  b.innerHTML = parts.join('');
+  b.className = parts.length ? 'banner on' : 'banner';
+  const bar = $('#offbar'), show = isOffline() && !!S.familyId && ['dashboard', 'history', 'stats', 'achv'].includes(S.view);
+  if (bar) { bar.textContent = show ? (offlineModeOn() ? OFFBAR_ON : OFFBAR_OFF) : ''; bar.className = show ? 'offbar on' : 'offbar'; }
+  document.body.classList.toggle('hasoffbar', show);
+}
+
+/* ----- copie locale : IndexedDB (et non localStorage) ----------------------------------
+   13 mois d'entrées peuvent peser plusieurs Mo : localStorage est limité (~5 Mo, lecture bloquante, tout en texte)
+   alors qu'IndexedDB stocke des objets, sans lecture bloquante et avec une bien plus grande réserve.
+   Les petites choses (code famille, enfants, file d'attente, choix) restent dans localStorage comme avant. */
+const idb = (() => {
+  let p = null;
+  const open = () => p || (p = new Promise(res => {
+    const t = setTimeout(() => res(null), 3000);
+    try {
+      const r = indexedDB.open('popot-local', 1);
+      r.onupgradeneeded = () => { try { r.result.createObjectStore('kv'); } catch (e) { /* rien */ } };
+      r.onsuccess = () => { clearTimeout(t); res(r.result); };
+      r.onerror = r.onblocked = () => { clearTimeout(t); res(null); };
+    } catch (e) { clearTimeout(t); res(null); }
+  }));
+  const run = (mode, fn) => open().then(db => !db ? undefined : new Promise(res => {
+    try {
+      const t = db.transaction('kv', mode), rq = fn(t.objectStore('kv'));
+      t.oncomplete = () => res(rq && rq.result); t.onerror = t.onabort = () => res(undefined);
+    } catch (e) { res(undefined); }
+  }));
+  return { get: k => run('readonly', o => o.get(k)), set: (k, v) => run('readwrite', o => o.put(v, k)), del: k => run('readwrite', o => o.delete(k)) };
+})();
+const localKey = id => 'local-' + id;
+const emptyLocal = id => ({ familyId: id || null, entries: [], syncedAt: null, fullAt: 0, from: null, totals: null, totalsAt: null, complete: false, interrupted: false, suspectAt: null, suspectTodayAt: null });
+let persistTimer = null;
+function persistLocal() {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => { const L = S.local; if (L.familyId) idb.set(localKey(L.familyId), Object.assign({ v: 1 }, L)); }, 400);
+}
+async function loadLocal(familyId) {
+  if (!familyId || S.local.familyId === familyId) return;
+  const rec = await idb.get(localKey(familyId));
+  if (S.local.familyId === familyId) return;
+  S.local = emptyLocal(familyId);
+  if (rec && rec.familyId === familyId && Array.isArray(rec.entries)) {
+    Object.assign(S.local, { entries: rec.entries, syncedAt: rec.syncedAt || null, fullAt: rec.fullAt || 0, from: rec.from || null, totals: rec.totals || null, totalsAt: rec.totalsAt || null,
+      complete: rec.complete === undefined ? !!rec.fullAt : !!rec.complete, interrupted: !!rec.interrupted, suspectAt: rec.suspectAt || null, suspectTodayAt: rec.suspectTodayAt || null });
+  }
+}
+const todayStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+const byTimeDesc = (a, b) => new Date(b.occurred_at) - new Date(a.occurred_at);
+const localFrom = () => { const d = todayStart(); d.setMonth(d.getMonth() - LOCAL_MONTHS); return d; };
+// les entrées du jour viennent d'être lues sur le serveur : elles remplacent celles de la copie locale
+function localMergeToday(rows, start) {
+  const L = S.local; if (!L.familyId) return;
+  L.entries = L.entries.filter(e => new Date(e.occurred_at) < start).concat(rows);
+  persistLocal();
+}
+function mirrorUpsert(row) {
+  const L = S.local; if (!L.familyId) return;
+  const i = L.entries.findIndex(e => e.id === row.id);
+  if (i < 0) L.entries.unshift(Object.assign({ created_at: new Date().toISOString() }, row)); else L.entries[i] = Object.assign({}, L.entries[i], row);
+  persistLocal();
+}
+function mirrorPatch(id, patch) { const e = S.local.entries.find(x => x.id === id); if (e) { Object.assign(e, patch); persistLocal(); } }
+function mirrorDelete(id) { S.local.entries = S.local.entries.filter(e => e.id !== id); persistLocal(); }
+
+/* Une réponse VIDE du serveur (sans erreur) ne doit jamais effacer en silence une copie qui contient des entrées
+   (réponse « fantôme » d'un réseau capricieux ou d'un Wi-Fi public). Règle :
+   1re réponse vide : on garde la copie et on note l'heure ; une 2e réponse vide au moins 30 s plus tard, confirmée par un
+   comptage séparé à 0, est considérée comme vraie : la copie est vidée (une seule confirmation, pas de boucle).
+   Un « aujourd'hui » vide au changement de jour n'est pas suspect : la copie n'avait rien pour aujourd'hui. */
+const SUSPECT_GAP = 30e3;
+async function acceptEmpty(field, localCount) {
+  const L = S.local;
+  if (!localCount) { if (L[field]) { L[field] = null; persistLocal(); } return true; }
+  if (!L[field]) { L[field] = Date.now(); persistLocal(); log('Copie locale du téléphone : réponse vide du serveur ignorée pour cette fois'); return false; }
+  if (Date.now() - L[field] < SUSPECT_GAP) return false;
+  try {
+    const r = await S.sb.from('entries').select('id', { count: 'exact', head: true }).eq('family_id', L.familyId);
+    if (r.error || (r.count || 0) > 0) { if (!r.error) { L[field] = null; persistLocal(); } return false; }
+  } catch (e) { return false; }
+  L[field] = null; persistLocal(); return true;
+}
+
+// copie complète des 13 derniers mois (tous les enfants de la famille)
+let syncing = false;
+async function syncLocal(force) {
+  if (syncing || !S.familyId || !serverOK()) return;
+  if (!force && Date.now() - S.local.fullAt < FULL_SYNC_EVERY) return;
+  syncing = true;
+  const fam = S.familyId;
+  let all = [], off = 0, finished = false;
+  try {
+    await loadLocal(fam);
+    const from = localFrom();
+    for (;;) {
+      const r = await S.sb.from('entries').select('*').eq('family_id', fam).gte('occurred_at', from.toISOString())
+        .order('occurred_at', { ascending: false }).range(off, off + 999);
+      if (r.error) throw r.error;
+      all = all.concat(r.data || []);
+      if ((r.data || []).length < 1000 || all.length >= LOCAL_MAX) break;
+      off += 1000;
+    }
+    finished = true;
+    if (S.familyId !== fam) return;
+    const L = S.local;
+    if (!all.length && !(await acceptEmpty('suspectAt', L.entries.length))) { L.fullAt = Date.now(); return; }
+    if (all.length && L.suspectAt) { L.suspectAt = null; }
+    L.entries = all.slice(0, LOCAL_MAX); L.from = from.getTime();
+    L.complete = true; L.interrupted = false; L.fullAt = L.syncedAt = Date.now();
+    persistLocal();
+  } catch (e) {
+    // copie interrompue : si elle n'a jamais été complète, on garde ce qui est déjà arrivé (marqué « incomplet »), sinon on garde l'ancienne copie complète
+    if (!finished && S.familyId === fam) {
+      if (!S.local.complete && all.length) { S.local.entries = all; S.local.from = localFrom().getTime(); S.local.syncedAt = null; persistLocal(); }
+      else if (S.local.complete && !S.local.interrupted) { S.local.interrupted = true; persistLocal(); }   // l'ancienne copie complète est gardée, on le signale
+    }
+    if (!netFail(e)) log('Copie locale du téléphone : mise à jour impossible', e && e.message);
+  }
+  finally { syncing = false; }
+}
+
+/* Les modifications en attente (PARTIE 2) se superposent à la copie du serveur */
+const opType = x => x.op || 'insert';
+function overlay(list) {
+  const m = new Map();
+  list.forEach(e => m.set(e.id, e));
+  S.queue.forEach(op => {
+    if (op.family_id !== S.familyId) return;
+    const t = opType(op);
+    if (t === 'insert') { if (!m.has(op.id)) m.set(op.id, op); }
+    else if (t === 'update') { const e = m.get(op.id); if (e) m.set(op.id, Object.assign({}, e, op.patch)); }
+    else if (t === 'delete') m.delete(op.id);
+  });
+  return Array.from(m.values());
+}
+function localQuery(f) {
+  return overlay(S.local.entries).filter(e => (!f.child || e.child_id === f.child) && (!f.kind || e.kind === f.kind) &&
+    (!f.from || new Date(e.occurred_at) >= f.from) && (!f.to || new Date(e.occurred_at) < f.to));
+}
+const todayFromLocal = () => localQuery({ from: todayStart() }).sort(byTimeDesc);
+
+function aggregate(list) {
+  let c = 0, p = 0, ml = 0, g = 0;
+  list.forEach(e => {
+    if (e.kind === 'caca') c++; else if (e.kind === 'pipi') p++;
+    else if (e.kind === 'biberon') { ml += Number(e.quantity_drunk) || 0; g += Number(e.quantity_eaten) || 0; }
+  });
+  return { caca: c, pipi: p, biberon: ml / 1000, mange: g / 1000 };
+}
+// derniers totaux connus + effet des modifications en attente
+function offlineTotals() {
+  const base = S.local.totals; if (!base) return null;
+  const a = aggregate(S.local.entries), b = aggregate(overlay(S.local.entries)), out = {};
+  TRACK_KEYS.forEach(k => { out[k] = Math.max(0, Math.round(((base[k] || 0) + b[k] - a[k]) * 1e6) / 1e6); });
+  return out;
+}
+function asofText(ts) {
+  if (!ts) return 'Aucune donnée enregistrée sur ce téléphone';
+  const d = new Date(ts), o = { day: 'numeric', month: 'short' };
+  if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+  return 'Données à jour au ' + d.toLocaleDateString('fr-FR', o) + ' à ' + hhmm(d);
+}
+const NO_DATA = 'Aucune donnée enregistrée sur ce téléphone';
+const INCOMPLETE_NOTE = "Copie incomplète : ce téléphone n'a reçu qu'une partie des données (copie partielle). Le reste sera récupéré à la prochaine ouverture avec une connexion.";
+const INTERRUPTED_NOTE = ' La dernière mise à jour a été interrompue : il peut manquer quelques entrées (copie partielle).';
+const hasLocalData = () => !!(S.local.syncedAt || S.local.entries.length);
+// ts = date des derniers totaux (Succès) ; sans ts : la note concerne la copie des entrées (accueil, historique, courbes)
+const asofHtml = ts => {
+  let t;
+  if (ts !== undefined) t = asofText(ts);
+  else t = !S.local.complete ? (S.local.entries.length ? INCOMPLETE_NOTE : NO_DATA) : asofText(S.local.syncedAt) + (S.local.interrupted ? '.' + INTERRUPTED_NOTE : '');
+  return '<div class="asof" id="asof">' + esc(t) + '</div>';
+};
+const tooOld = start => !!(S.local.from && start && start.getTime() < S.local.from);
+const OLD_NOTE = '<p class="soft small">Hors connexion : les données de plus de ' + LOCAL_MONTHS + ' mois ne sont pas gardées sur ce téléphone.</p>';
+
+/* ===== Enfants ===== */
+const childName = c => (c && (c.first_name || c.label)) || '';
+const curChild = () => S.children.find(c => c.id === S.childId) || S.children[0] || null;
+const childNameById = id => childName(S.children.find(c => c.id === id));
+const colorHex = (kind, name) => { const f = (COLORS[kind] || []).concat(OLD_COLORS[kind] || []).find(x => x[0] === name); return f ? f[1] : 'transparent'; };
+
+/* ===== Écrans ===== */
+function viewLoading() { return '<div class="center"><div style="font-size:56px">👶</div><p class="soft">Chargement…</p></div>'; }
+
+function viewError() {
+  return '<div class="center"><div style="font-size:56px">😕</div><h2>Impossible de continuer</h2><p class="soft">' + esc(S.errText) +
+    '</p><button class="btn" data-act="retry">Réessayer</button><button class="btn ghost" data-act="logs">Voir le journal des erreurs</button></div>';
+}
+
+function viewWelcome() {
+  return '<div class="hero"><div class="logo">👶</div><h1>PoPoT</h1><p class="soft">Le suivi de bébé, simple et à deux.</p></div>' +
+    '<section class="card"><h2>Nouvelle famille</h2>' +
+    "<p class=\"soft\">Indiquez le prénom de l'enfant (facultatif). Un code famille sera créé pour inviter l'autre parent.</p>" +
+    '<input id="newName" class="inp" placeholder="Prénom de l\'enfant (facultatif)" autocomplete="off" maxlength="40">' +
+    '<button class="btn" data-act="create">Créer ma famille</button></section>' +
+    '<section class="card"><h2>Rejoindre une famille</h2>' +
+    '<p class="soft">Saisissez le code reçu de l\'autre parent.</p>' +
+    '<input id="joinCode" class="inp code" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16">' +
+    '<button class="btn alt" data-act="join">Rejoindre cette famille</button></section>' +
+    '<button class="btn ghost" data-act="logs" style="margin-top:18px">Journal des erreurs</button>';
+}
+
+function entryRow(e) {
+  const k = KINDS[e.kind] || { emoji: '•', label: e.kind };
+  const bits = [];
+  if (e.color) bits.push('<span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
+  if (e.texture) bits.push(esc(e.texture));
+  if (e.quantity_drunk != null) bits.push('biberon ' + fmtQ(e.quantity_drunk) + ' ml');
+  if (e.quantity_eaten != null) bits.push('mangé ' + fmtQ(e.quantity_eaten) + ' g');
+  if (e.temperature != null) bits.push('<b>' + fmtQ(e.temperature) + ' °C</b>');
+  return '<button class="row-item" data-act="open" data-id="' + esc(e.id) + '">' +
+    '<span class="t">' + hhmm(new Date(e.occurred_at)) + '</span><span class="e">' + k.emoji + '</span>' +
+    '<span class="b"><span><b>' + k.label + '</b>' + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</span>' +
+    (bits.length ? '<span class="d">' + bits.join(' · ') + '</span>' : '') +
+    (e.photo_path ? '<span class="d">📷 photo</span>' : '') +
+    (e.comment ? '<span class="c">« ' + esc(e.comment) + ' »</span>' : '') + '</span></button>';
+}
+
+function viewDashboard() {
+  const c = curChild();
+  const mine = S.today.filter(e => e.child_id === (c && c.id));
+  const stat = k => {
+    if (k === 'couche') {
+      const l = mine.filter(e => e.kind === 'pipi' || e.kind === 'caca');
+      if (!l.length) return "Aucune aujourd'hui";
+      const np = l.filter(e => e.kind === 'pipi').length, nc = l.length - np;
+      return np + ' pipi' + (np > 1 ? 's' : '') + ' · ' + nc + ' caca' + (nc > 1 ? 's' : '') + ' · dernière à ' + hhmm(new Date(l[0].occurred_at));
+    }
+    const l = mine.filter(e => e.kind === k);
+    return l.length ? l.length + " aujourd'hui · dernier à " + hhmm(new Date(l[0].occurred_at)) : "Aucun aujourd'hui";
+  };
+  const emo = k => k === 'couche' ? '<span class="em em2">💩💧</span>' : '<span class="em">' + KINDS[k].emoji + '</span>';
+  const tile = (k, size, style) => '<button class="tile ' + size + '" style="--c:var(--' + (k === 'couche' ? 'caca' : k) + ');' + (style || '') + '" data-act="add" data-kind="' + k + '">' +
+    emo(k) + '<span class="nm">' + KINDS[k].label + '</span><span class="meta">' + esc(stat(k)) + '</span></button>';
+  const tabs = S.children.length > 1
+    ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
+    : '';
+  const head = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button><div><div class="hi">PoPoT</div><div class="sub">' + esc(childName(c)) + '</div></div></div>' +
+    '<button class="icon" data-act="settings" aria-label="Réglages">⚙️</button></header>' + tabs +
+    (isOffline() ? asofHtml() : '');
+  if (adaptiveOn()) {
+    const u = S.usage || {};
+    const raw = { couche: (u.pipi || 0) + (u.caca || 0), biberon: u.biberon || 0, vomi: u.vomi || 0, temperature: u.temperature || 0 };
+    const mx = Math.max(raw.couche, raw.biberon, raw.vomi, raw.temperature);
+    const w = k => Math.round((raw[k] + 0.2 * mx + 1) * 100) / 100;
+    const wa = w('biberon'), wv = w('vomi');
+    return head + '<div class="mosaic">' +
+      tile('couche', '', 'flex:' + w('couche') + ' 1 0') +
+      '<div class="mrow" style="flex:' + Math.max(wa, wv) + ' 1 0">' + tile('biberon', '', 'flex:' + wa + ' 1 0') + tile('vomi', '', 'flex:' + wv + ' 1 0') + '</div>' +
+      tile('temperature', '', 'flex:' + w('temperature') + ' 1 0') + '</div>' +
+      '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>';
+  }
+  const recent = ['biberon', 'caca', 'vomi', 'pipi', 'temperature'].map(k => mine.find(e => e.kind === k)).filter(Boolean);
+  return head +
+    '<div class="grid">' + tile('couche', 'big') + tile('biberon', 'big') + '</div>' +
+    '<div class="grid">' + tile('vomi', 'small') + tile('temperature', 'small') + '</div>' +
+    '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>' +
+    '<h3>Derniers ajouts du jour</h3>' +
+    (recent.length ? '<div class="rows">' + recent.map(entryRow).join('') + '</div>' : '<p class="empty">Rien pour le moment. Appuyez sur un bouton pour ajouter une entrée.</p>');
+}
+
+function viewHistory() {
+  const H = S.hist;
+  const kinds = ['all', 'pipi', 'caca', 'vomi', 'biberon', 'temperature'];
+  let html = '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">Historique</div></div>' +
+    '<button class="icon" data-act="back" aria-label="Retour">←</button></header>';
+  if (H.local) html += asofHtml();
+  if (S.children.length > 1) {
+    html += '<div class="chips"><button class="chip ' + (!H.childId ? 'on' : '') + '" data-act="hchild" data-id="">Tous</button>' +
+      S.children.map(ch => '<button class="chip ' + (H.childId === ch.id ? 'on' : '') + '" data-act="hchild" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>';
+  }
+  html += '<div class="chips">' + kinds.map(k => '<button class="chip ' + (H.kind === k ? 'on' : '') + '" data-act="hkind" data-kind="' + k + '">' +
+    (k === 'all' ? 'Tout' : KINDS[k].emoji + ' ' + KINDS[k].label) + '</button>').join('') + '</div>';
+  html += '<div class="row" style="align-items:center"><input id="hday" class="inp" type="date" value="' + esc(H.day) + '" max="' + dayKey(new Date()) + '" style="margin-top:0">' +
+    (H.day ? '<button class="mini" data-act="hclear">Effacer</button>' : '') + '</div>';
+  if (!H.items.length) {
+    html += '<p class="empty">' + (H.loading ? 'Chargement…' : 'Aucune entrée pour ces filtres.') + '</p>';
+  } else {
+    let last = '';
+    html += '<div class="rows">';
+    H.items.forEach(e => {
+      const d = new Date(e.occurred_at), k = dayKey(d);
+      if (k !== last) { html += '</div><div class="day">' + esc(dayLabel(d)) + '</div><div class="rows">'; last = k; }
+      html += entryRow(e);
+    });
+    html += '</div>';
+    if (H.more) html += '<button class="btn alt" data-act="more">Voir plus</button>';
+  }
+  if (H.local && !H.more) html += OLD_NOTE;     // hors connexion, fin de liste : rappel de la durée gardée sur le téléphone
+  return html;
+}
+
+function render() {
+  const v = S.view;
+  $('#app').innerHTML = v === 'welcome' ? viewWelcome()
+    : v === 'dashboard' ? viewDashboard()
+    : v === 'history' ? viewHistory()
+    : v === 'stats' && S.stat ? viewStats()
+    : v === 'achv' && S.achv ? viewAchv()
+    : v === 'error' ? viewError()
+    : viewLoading();
+  $('#app').className = (v === 'dashboard' && adaptiveOn()) ? 'full' : '';
+  renderBanner();
+}
+
+/* ===== Module 2 : suivi dans le temps (courbes) ===== */
+const STATS = {
+  alim: { title: 'Alimentation', emoji: '🍼', kind: 'biberon' },
+  caca: { title: 'Caca', emoji: '💩', kind: 'caca' },
+  pipi: { title: 'Pipi', emoji: '💧', kind: 'pipi' },
+  temp: { title: 'Température', emoji: '🌡️', kind: 'temperature' }
+};
+// couleurs classées de la plus grave à la moins grave (sert à départager une égalité)
+const GRAVE = {
+  caca: ['rouge', 'noir', 'gris', 'marron foncé', 'marron', 'vert foncé', 'jaune moutarde', 'vert clair'],
+  pipi: ['rouge', 'jaune foncé / orangé', 'jaune', 'jaune très clair'],
+  vomi: ['rouge', 'marron', 'blanc']
+};
+const SCALES = [['day', 'Jour'], ['week', 'Semaine'], ['month', 'Mois'], ['year', 'Année']];
+const sod = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const fr = (d, o) => d.toLocaleDateString('fr-FR', o);
+
+function periodOf(scale, off) {
+  const now = new Date(), t = sod(now);
+  let start, end, n, title, bucketOf, label, btitle;
+  if (scale === 'day') {
+    start = new Date(t.getFullYear(), t.getMonth(), t.getDate() + off);
+    end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+    n = 24;
+    title = off >= -1 ? dayLabel(start) + ' · ' + fr(start, { day: 'numeric', month: 'long' }) : dayLabel(start);
+    bucketOf = d => d.getHours();
+    label = i => (i % 3 === 0 ? i + 'h' : '');
+    btitle = i => 'De ' + i + 'h à ' + (i + 1) + 'h';
+  } else if (scale === 'week') {
+    const dow = (t.getDay() + 6) % 7;
+    start = new Date(t.getFullYear(), t.getMonth(), t.getDate() - dow + off * 7);
+    end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+    n = 7;
+    const last = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    title = (off === 0 ? 'Cette semaine · ' : '') + 'du ' + fr(start, { day: 'numeric', month: 'short' }) + ' au ' + fr(last, { day: 'numeric', month: 'short' });
+    bucketOf = d => Math.round((sod(d) - start) / 864e5);
+    label = i => ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'][i];
+    btitle = i => fr(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i), { weekday: 'long', day: 'numeric', month: 'long' });
+  } else if (scale === 'month') {
+    start = new Date(t.getFullYear(), t.getMonth() + off, 1);
+    end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    n = Math.round((end - start) / 864e5);
+    title = fr(start, { month: 'long', year: 'numeric' });
+    bucketOf = d => d.getDate() - 1;
+    label = i => (i === 0 || (i + 1) % 5 === 0 ? String(i + 1) : '');
+    btitle = i => fr(new Date(start.getFullYear(), start.getMonth(), i + 1), { weekday: 'long', day: 'numeric', month: 'long' });
+  } else {
+    start = new Date(t.getFullYear() + off, 0, 1);
+    end = new Date(start.getFullYear() + 1, 0, 1);
+    n = 12;
+    title = String(start.getFullYear());
+    bucketOf = d => d.getMonth();
+    label = i => 'JFMAMJJASOND'[i];
+    btitle = i => fr(new Date(start.getFullYear(), i, 1), { month: 'long', year: 'numeric' });
+  }
+  const last = now < start ? -1 : now >= end ? n - 1 : bucketOf(now);
+  return { start, end, n, title, bucketOf, label, btitle, last };
+}
+
+async function loadStat(silent) {
+  const st = S.stat;
+  if (!st) return;
+  const p = periodOf(st.scale, st.offset), req = ++st.req;
+  if (!silent) { st.loading = true; st.loaded = false; st.failed = false; st.nodata = false; st.items = []; render(); }
+  // PARTIE 1 : sans connexion, les courbes se tracent depuis la copie locale du téléphone
+  const fromLocal = () => localQuery({ child: S.childId, kind: STATS[st.key].kind, from: p.start, to: p.end })
+    .sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
+  try {
+    if (serverOK()) {
+      let all = [], from = 0;
+      for (;;) {
+        const r = await S.sb.from('entries').select('id,occurred_at,color,texture,quantity_drunk,quantity_eaten,temperature,comment')
+          .eq('family_id', S.familyId).eq('child_id', S.childId).eq('kind', STATS[st.key].kind)
+          .gte('occurred_at', p.start.toISOString()).lt('occurred_at', p.end.toISOString())
+          .order('occurred_at', { ascending: true }).range(from, from + 999);
+        if (r.error) throw r.error;
+        all = all.concat(r.data);
+        if (r.data.length < 1000) break;
+        from += 1000;
+      }
+      if (S.stat !== st || req !== st.req) return;
+      st.items = all; st.failed = false; st.nodata = false; st.loaded = true; st.local = false;
+    } else {
+      if (!hasLocalData()) { st.items = []; st.failed = false; st.nodata = true; st.loaded = true; st.local = false; }
+      else { st.items = fromLocal(); st.failed = false; st.nodata = false; st.loaded = true; st.local = true; }
+    }
+  } catch (err) {
+    if (S.stat !== st || req !== st.req) return;
+    if (isNetErr(err) && hasLocalData()) { setNet(true); st.items = fromLocal(); st.failed = false; st.nodata = false; st.loaded = true; st.local = true; }
+    else if (isNetErr(err)) { setNet(true); st.items = []; st.failed = false; st.nodata = true; st.loaded = true; st.local = false; }
+    else { st.failed = true; if (isNetErr(err)) setNet(true); else fail(err, 'Chargement des courbes'); }
+  }
+  st.loading = false;
+  render();
+}
+
+function statBuckets(st, p) {
+  const B = Array.from({ length: p.n }, () => ({ items: [] }));
+  st.items.forEach(it => { const i = p.bucketOf(new Date(it.occurred_at)); if (i >= 0 && i < p.n) B[i].items.push(it); });
+  return B;
+}
+
+// couleur la plus représentée ; en cas d'égalité, la plus grave
+function dominantColor(kind, items) {
+  const cnt = {};
+  items.forEach(it => { if (it.color) cnt[it.color] = (cnt[it.color] || 0) + 1; });
+  const names = Object.keys(cnt);
+  if (!names.length) return null;
+  const order = GRAVE[kind] || [];
+  const rank = c => { const i = order.indexOf(c); return i < 0 ? 99 : i; };
+  names.sort((a, b) => cnt[b] - cnt[a] || rank(a) - rank(b));
+  return names[0];
+}
+
+function niceStep(max, integer) {
+  if (!(max > 0)) max = integer ? 4 : 10;
+  let step = max / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(step)));
+  step = [1, 2, 2.5, 5, 10].map(s => s * mag).find(s => s >= step - 1e-9);
+  if (integer) step = Math.max(1, Math.ceil(step));
+  return step;
+}
+const sumOf = (items, k) => items.reduce((a, it) => a + (Number(it[k]) || 0), 0);
+
+function chartSvg(st, p, B) {
+  const alim = st.key === 'alim';
+  const W = 360, H = 230, L = 40, R = alim ? 40 : 14, T = 20, Bm = 28;
+  const pw = W - L - R, ph = H - T - Bm, cw = pw / p.n;
+  const X = i => L + (i + 0.5) * cw;
+  const series = alim
+    ? [{ unit: 'ml', color: 'var(--s1)', vals: B.map(b => sumOf(b.items, 'quantity_drunk')) },
+       { unit: 'g', color: 'var(--s2)', vals: B.map(b => sumOf(b.items, 'quantity_eaten')) }]
+    : [{ unit: '', color: 'var(--ink)', vals: B.map(b => b.items.length) }];
+  series.forEach(s => { s.step = niceStep(Math.max.apply(null, s.vals.slice(0, p.last + 1).concat([0])), !alim); s.top = s.step * 4; });
+  const Y = (s, v) => T + ph - (v / s.top) * ph;
+  let g = '';
+  for (let j = 0; j <= 4; j++) {
+    const y = T + ph - j * ph / 4;
+    g += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '"/>';
+    g += '<text x="' + (L - 6) + '" y="' + (y + 3.5) + '" text-anchor="end"' + (alim ? ' style="fill:' + series[0].color + '"' : '') + '>' + fmtQ(j * series[0].step) + '</text>';
+    if (alim) g += '<text x="' + (W - R + 6) + '" y="' + (y + 3.5) + '" style="fill:' + series[1].color + '">' + fmtQ(j * series[1].step) + '</text>';
+  }
+  if (alim) {
+    g += '<text x="' + (L - 6) + '" y="10" text-anchor="end" style="fill:' + series[0].color + ';font-weight:700">ml</text>';
+    g += '<text x="' + (W - R + 6) + '" y="10" style="fill:' + series[1].color + ';font-weight:700">g</text>';
+  }
+  for (let i = 0; i < p.n; i++) { const lb = p.label(i); if (lb) g += '<text x="' + X(i) + '" y="' + (H - 9) + '" text-anchor="middle">' + lb + '</text>'; }
+  if (st.sel != null && st.sel <= p.last) g += '<rect class="selcol" x="' + (L + st.sel * cw) + '" y="' + T + '" width="' + cw + '" height="' + ph + '" rx="4"/>';
+  const rad = p.n > 20 ? 3.5 : 5;
+  series.forEach((s, si) => {
+    const pts = [];
+    for (let i = 0; i <= p.last; i++) pts.push([X(i), Y(s, s.vals[i])]);
+    if (pts.length > 1) g += '<polyline class="ln" style="stroke:' + (alim ? s.color : 'var(--soft)') + '" points="' + pts.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ') + '"/>';
+    pts.forEach((q, i) => {
+      let fill = s.color, extra = '';
+      if (!alim) {
+        const c = dominantColor(st.key, B[i].items);
+        if (!B[i].items.length) { g += '<circle cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="2.5" class="emp"/>'; return; }
+        fill = c ? colorHex(st.key, c) : 'var(--soft)';
+        extra = ' class="dt"';
+      } else if (!s.vals[i]) { g += '<circle cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="2" style="fill:' + s.color + '"/>'; return; }
+      g += '<circle cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="' + rad + '" style="fill:' + fill + '"' + extra + '/>';
+    });
+  });
+  for (let i = 0; i <= p.last; i++) g += '<rect class="hit" x="' + (L + i * cw) + '" y="' + T + '" width="' + cw + '" height="' + ph + '" data-act="spoint" data-i="' + i + '"/>';
+  const descr = alim ? 'Courbes du biberon en ml et du mangé en g' : 'Courbe du nombre de ' + STATS[st.key].title.toLowerCase() + 's';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + descr + '">' + g + '</svg>';
+}
+
+function statDetail(st, p, B) {
+  if (st.sel == null || st.sel > p.last) return '<p class="soft hint">Touchez un point de la courbe pour voir le détail.</p>';
+  const b = B[st.sel], items = b.items;
+  const pre = it => { const d = new Date(it.occurred_at); return st.scale === 'year' ? pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + ' ' + hhmm(d) : hhmm(d); };
+  let html = '<h3>' + esc(p.btitle(st.sel)) + '</h3>';
+  if (!items.length) return html + '<p class="soft">Aucune entrée sur cette période.</p>';
+  let rows;
+  if (st.key === 'alim') {
+    html += '<div class="kv"><span>🍼 Biberon</span><b>' + fmtQ(sumOf(items, 'quantity_drunk')) + ' ml</b></div>' +
+      '<div class="kv"><span>🥣 Mangé</span><b>' + fmtQ(sumOf(items, 'quantity_eaten')) + ' g</b></div>';
+    rows = items.map(it => '<div class="dl"><span class="t">' + pre(it) + '</span><span>' +
+      [it.quantity_drunk != null ? 'biberon ' + fmtQ(it.quantity_drunk) + ' ml' : '', it.quantity_eaten != null ? 'mangé ' + fmtQ(it.quantity_eaten) + ' g' : ''].filter(Boolean).join(' · ') + '</span></div>');
+  } else {
+    const c = dominantColor(st.key, items), noun = STATS[st.key].title.toLowerCase();
+    html += '<div class="kv"><span>' + items.length + ' ' + noun + (items.length > 1 ? 's' : '') + '</span>' +
+      (c ? '<span>Couleur affichée : <span class="dot" style="background:' + colorHex(st.key, c) + '"></span><b>' + esc(c) + '</b></span>' : '') + '</div>';
+    rows = items.map(it => '<div class="dl"><span class="t">' + pre(it) + '</span><span>' +
+      (it.color ? '<span class="dot" style="background:' + colorHex(st.key, it.color) + '"></span>' + esc(it.color) : '<span class="soft">couleur non renseignée</span>') +
+      (it.texture ? ' · ' + esc(it.texture) : '') + '</span></div>');
+  }
+  const cap = 40;
+  return html + rows.slice(0, cap).join('') + (rows.length > cap ? '<p class="soft">… et ' + (rows.length - cap) + ' autres</p>' : '');
+}
+
+/* Température : chaque mesure est un point à sa date et heure, deux repères à 36,5 et 37,5 °C */
+function tempCard(st, p) {
+  const W = 360, H = 230, L = 40, R = 14, T = 16, Bm = 28, pw = W - L - R, ph = H - T - Bm;
+  const vals = st.items.map(it => Number(it.temperature)).filter(v => isFinite(v));
+  const lo = Math.floor((Math.min.apply(null, vals.concat([36.5])) - 0.2) * 2) / 2;
+  const hi = Math.ceil((Math.max.apply(null, vals.concat([37.5])) + 0.2) * 2) / 2;
+  const step = hi - lo > 4 ? 1 : 0.5;
+  const Y = v => T + ph - ((v - lo) / (hi - lo)) * ph;
+  const span = p.end - p.start;
+  const X = d => L + ((d - p.start) / span) * pw;
+  let g = '';
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    g += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/>' +
+      '<text x="' + (L - 6) + '" y="' + (Y(v) + 3.5) + '" text-anchor="end">' + fmtQ(v) + '</text>';
+  }
+  [36.5, 37.5].forEach(v => { g += '<line class="ref" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/>'; });
+  for (let i = 0; i < p.n; i++) { const lb = p.label(i); if (lb) g += '<text x="' + (L + (i + 0.5) / p.n * pw) + '" y="' + (H - 9) + '" text-anchor="middle">' + lb + '</text>'; }
+  const pts = st.items.map((it, i) => ({ i: i, x: X(new Date(it.occurred_at)), y: Y(Number(it.temperature)) }))
+    .filter(q => isFinite(q.y) && q.x >= L - 1 && q.x <= W - R + 1);
+  if (pts.length > 1) g += '<polyline class="ln" style="stroke:var(--temperature)" points="' + pts.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join(' ') + '"/>';
+  pts.forEach(q => {
+    if (st.sel === q.i) g += '<circle cx="' + q.x.toFixed(1) + '" cy="' + q.y.toFixed(1) + '" r="9" class="ring"/>';
+    g += '<circle cx="' + q.x.toFixed(1) + '" cy="' + q.y.toFixed(1) + '" r="4.5" class="dt" style="fill:var(--temperature)"/>';
+    g += '<circle cx="' + q.x.toFixed(1) + '" cy="' + q.y.toFixed(1) + '" r="12" class="hit" data-act="spoint" data-i="' + q.i + '"/>';
+  });
+  const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Courbe des températures en degrés Celsius, avec des repères à 36,5 et 37,5">' + g + '</svg>';
+  const nn = st.items.length;
+  const long = it => { const d = new Date(it.occurred_at); return fr(d, { weekday: 'long', day: 'numeric', month: 'long' }) + ' à ' + hhmm(d); };
+  let detail;
+  if (st.sel != null && st.items[st.sel]) {
+    const it = st.items[st.sel];
+    detail = '<h3>' + fmtQ(it.temperature) + ' °C</h3><p class="soft" style="margin:0">' + esc(long(it)) + '</p>' +
+      (it.comment ? '<p style="margin:6px 0 0">« ' + esc(it.comment) + ' »</p>' : '');
+  } else {
+    detail = '<p class="soft hint">' + (nn ? 'Touchez un point de la courbe pour voir la mesure.' : 'Aucune température sur cette période.') + '</p>';
+  }
+  const list = st.items.map((it, i) => ({ it: it, i: i })).reverse().slice(0, 40).map(q =>
+    '<button class="dl tl' + (st.sel === q.i ? ' on' : '') + '" data-act="spoint" data-i="' + q.i + '"><span class="t">' + esc(fr(new Date(q.it.occurred_at), { day: 'numeric', month: 'short' })) + ' ' + hhmm(new Date(q.it.occurred_at)) +
+    '</span><b>' + fmtQ(q.it.temperature) + ' °C</b></button>').join('');
+  return '<div class="chartcard"><div class="legend"><b>' + nn + ' mesure' + (nn > 1 ? 's' : '') + '</b><span><i style="background:var(--temperature)"></i>Température (°C)</span><span>traits : 36,5 et 37,5 °C</span></div>' + svg + '</div>' +
+    '<div class="card detail">' + detail + '</div>' +
+    (list ? '<div class="card detail"><h3>Mesures de la période</h3>' + list + '</div>' : '');
+}
+
+const HOME_BTN = '<button class="icon" data-act="gohome" aria-label="Retour à l\'accueil">🏠</button>';
+function viewStats() {
+  const st = S.stat, cfg = STATS[st.key], p = periodOf(st.scale, st.offset);
+  const c = curChild();
+  const tabs = S.children.length > 1
+    ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>' : '';
+  let html = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button>' +
+    '<div><div class="hi">Suivi dans le temps</div><div class="sub">' + cfg.emoji + ' ' + cfg.title + '</div></div></div>' + HOME_BTN + '</header>' + tabs +
+    '<div class="chips">' + SCALES.map(s => '<button class="chip ' + (st.scale === s[0] ? 'on' : '') + '" data-act="sscale" data-s="' + s[0] + '">' + s[1] + '</button>').join('') + '</div>' +
+    '<div class="pnav"><button class="icon sm" data-act="sprev" aria-label="Période précédente">◀</button><div class="ptitle">' + esc(p.title) + '</div>' +
+    '<button class="icon sm" data-act="snext" aria-label="Période suivante"' + (st.offset >= 0 ? ' disabled' : '') + '>▶</button></div>';
+  if (!S.childId) return html + '<p class="empty">Aucun enfant dans cette famille.</p>';
+  if (st.local && st.loaded) html += asofHtml() + (tooOld(p.start) ? OLD_NOTE : '');
+  if (st.nodata) return html + '<p class="empty">' + esc(NO_DATA) + '</p>';
+  if (st.failed) return html + '<div class="empty">Impossible de charger les courbes. Une connexion est nécessaire.<br><button class="btn alt" data-act="sretry">Réessayer</button></div>';
+  if (!st.loaded) return html + '<p class="empty">Chargement…</p>';
+  if (st.key === 'temp') return html + tempCard(st, p);
+  const B = statBuckets(st, p);
+  let total, legend = '';
+  if (st.key === 'alim') {
+    total = fmtQ(sumOf(st.items, 'quantity_drunk')) + ' ml de biberon · ' + fmtQ(sumOf(st.items, 'quantity_eaten')) + ' g mangés';
+    legend = '<div class="legend"><span><i style="background:var(--s1)"></i>Biberon (ml, axe de gauche)</span><span><i style="background:var(--s2)"></i>Mangé (g, axe de droite)</span></div>';
+  } else {
+    const nn = st.items.length;
+    total = nn + ' ' + cfg.title.toLowerCase() + (nn > 1 ? 's' : '');
+  }
+  return html + '<div class="chartcard"><div class="legend"><b>Total : ' + esc(total) + '</b></div>' + legend + chartSvg(st, p, B) + '</div>' +
+    '<div class="card detail">' + statDetail(st, p, B) + '</div>';
+}
+
+/* ===== Succès : coupes pour toute la famille ===== */
+const CUPS = [
+  { name: 'Bois', of: 'de bois', color: '#8b5a2b' }, { name: 'Fer', of: 'de fer', color: '#7d8590' },
+  { name: 'Bronze', of: 'de bronze', color: '#cd7f32' }, { name: 'Argent', of: "d'argent", color: '#b8c2cc' },
+  { name: 'Or', of: "d'or", color: '#f2b705' }, { name: 'Diamant', of: 'de diamant', color: '#38bdf8' },
+  { name: 'Master', of: 'master', color: '#9333ea' }
+];
+const TRACKS = {
+  caca:    { title: 'Caca', emoji: '💩', tiers: [10, 50, 100, 250, 500, 1000, 5000], unit: '', word: n => 'Vous avez déclaré ' + nf(n) + ' cacas' },
+  pipi:    { title: 'Pipi', emoji: '💧', tiers: [25, 100, 250, 500, 1000, 2500, 10000], unit: '', word: n => 'Vous avez déclaré ' + nf(n) + ' pipis' },
+  biberon: { title: 'Biberon', emoji: '🍼', tiers: [5, 25, 100, 250, 500, 1000, 2500], unit: 'L', word: n => 'Bébé a bu ' + nf(n) + ' litres de biberon' },
+  mange:   { title: 'Mangé', emoji: '🥣', tiers: [1, 5, 20, 50, 100, 250, 1000], unit: 'kg', word: n => 'Bébé a mangé ' + nf(n) + ' kilos' }
+};
+const TRACK_KEYS = Object.keys(TRACKS);
+function nf(n) { return Number(n).toLocaleString('fr-FR'); }
+const levelOf = (k, total) => TRACKS[k].tiers.filter(t => total >= t).length;
+
+function cupSvg(i, size, locked) {
+  const c = CUPS[i].color, id = 'cg' + i + '-' + size;
+  const fill = i === 6 ? 'url(#' + id + ')' : c;
+  const defs = i === 6 ? '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9333ea"/><stop offset=".5" stop-color="#ec4899"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>' : '';
+  const extra = i === 5 ? '<path d="M12 6.5l1 1.6-1 1.6-1-1.6z" fill="#fff" opacity=".85"/>' : i === 6 ? '<path d="M12 5l.9 1.9 2.1.3-1.5 1.5.4 2.1L12 9.8 10.1 10.8l.4-2.1L9 7.2l2.1-.3z" fill="#fff" opacity=".9"/>' : '';
+  return '<svg class="cup' + (locked ? ' lock' : '') + '" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" aria-hidden="true">' + defs +
+    '<path d="M7 3h10v6a5 5 0 0 1-10 0z" fill="' + fill + '"/>' +
+    '<path d="M7 5H4v2a3 3 0 0 0 3 3M17 5h3v2a3 3 0 0 1-3 3" fill="none" stroke="' + (i === 6 ? '#ec4899' : c) + '" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<path d="M11 14h2v3h-2z" fill="' + fill + '"/><rect x="8" y="17" width="8" height="3.2" rx="1.2" fill="' + fill + '"/>' + extra + '</svg>';
+}
+
+async function fetchTotals(keys) {
+  const out = {};
+  for (const k of keys) {
+    if (k === 'caca' || k === 'pipi') {
+      const r = await S.sb.from('entries').select('id', { count: 'exact', head: true }).eq('family_id', S.familyId).eq('kind', k);
+      if (r.error) throw r.error;
+      out[k] = r.count || 0;
+    }
+  }
+  if (keys.indexOf('biberon') > -1 || keys.indexOf('mange') > -1) {
+    let ml = 0, g = 0, from = 0;
+    for (;;) {
+      const r = await S.sb.from('entries').select('quantity_drunk,quantity_eaten').eq('family_id', S.familyId).eq('kind', 'biberon')
+        .order('occurred_at', { ascending: true }).range(from, from + 999);
+      if (r.error) throw r.error;
+      r.data.forEach(e => { ml += Number(e.quantity_drunk) || 0; g += Number(e.quantity_eaten) || 0; });
+      if (r.data.length < 1000) break;
+      from += 1000;
+    }
+    out.biberon = ml / 1000; out.mange = g / 1000;
+  }
+  // PARTIE 1 : on garde les derniers totaux connus pour la page Succès hors connexion
+  S.local.totals = Object.assign(S.local.totals || {}, out); S.local.totalsAt = Date.now(); persistLocal();
+  return out;
+}
+
+// compare avec les coupes déjà connues sur ce téléphone : fête une nouvelle coupe, retire en silence une coupe perdue
+function applyLevels(totals) {
+  const key = 'popot-ach-' + S.familyId, first = store.get(key, null) === null;
+  const saved = store.get(key, null) || {};
+  Object.keys(totals).forEach(k => {
+    const L = levelOf(k, totals[k]);
+    if (!first && saved[k] !== undefined && L > saved[k]) celebrate(k, L);
+    saved[k] = L;
+  });
+  store.set(key, saved);
+}
+let achBusy = false, achLast = 0, achAgain = null;
+async function checkAch(keys, force) {
+  // jamais de fête hors connexion : elles sont évaluées juste après le renvoi des modifications
+  if (!S.familyId || !serverOK()) return;
+  if (achBusy) { if (force) achAgain = keys || TRACK_KEYS; return; }
+  if (!force && Date.now() - achLast < 15000) return;
+  achBusy = true; achLast = Date.now();
+  try { applyLevels(await fetchTotals(keys || TRACK_KEYS)); }
+  catch (e) { if (!netFail(e)) log('Succès : calcul impossible', e && e.message); }
+  achBusy = false;
+  if (achAgain) { const k = achAgain; achAgain = null; checkAch(k, true); }
+}
+const achKeysFor = kind => kind === 'caca' ? ['caca'] : kind === 'pipi' ? ['pipi'] : kind === 'biberon' ? ['biberon', 'mange'] : [];
+
+/* Fête : confettis et champagne */
+let celeQueue = [], celeOn = false, fxRaf = 0;
+function celebrate(k, L) { celeQueue.push({ k: k, L: L }); if (!celeOn) showCele(); }
+function showCele() {
+  const q = celeQueue.shift();
+  if (!q) { celeOn = false; return; }
+  celeOn = true;
+  const T = TRACKS[q.k], cup = CUPS[q.L - 1], tier = T.tiers[q.L - 1];
+  const msg = q.L === 7 ? T.word(tier) + ' : coupe MASTER, un exploit presque impossible !' : T.word(tier) + ' : coupe ' + cup.of + ' !';
+  let el = $('#celebrate');
+  if (!el) { el = document.createElement('div'); el.id = 'celebrate'; el.className = 'cele'; document.body.appendChild(el); }
+  el.innerHTML = '<div class="cbox" role="dialog" aria-modal="true">' + cupSvg(q.L - 1, 120, false) + '<h2>Bravo !</h2><p>' + esc(msg) + '</p>' +
+    '<button class="btn" data-act="celeclose">Super !</button></div><canvas id="fx" aria-hidden="true"></canvas>';
+  el.classList.add('on');
+  launchFx($('#fx'));
+}
+function closeCele() {
+  cancelAnimationFrame(fxRaf);
+  const el = $('#celebrate');
+  if (el) { el.classList.remove('on'); el.innerHTML = ''; }
+  setTimeout(showCele, 250);
+}
+function launchFx(cv) {
+  if (!cv || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  const dpr = window.devicePixelRatio || 1, W = innerWidth, H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d'); if (!ctx) return;
+  ctx.scale(dpr, dpr);
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const cols = ['#ff4d6d', '#ffd60a', '#4cc9f0', '#80ed99', '#b388ff', '#ff9f1c'], gold = ['#fff3b0', '#ffe066', '#ffffff', '#ffd166'];
+  const parts = [];
+  for (let i = 0; i < 150; i++) parts.push({ t: 'c', x: rnd(0, W), y: rnd(-H * .6, 0), vx: rnd(-1.5, 1.5), vy: rnd(2, 5), s: rnd(6, 11), r: rnd(0, 6), vr: rnd(-.2, .2), c: cols[i % cols.length], life: 1 });
+  const t0 = performance.now();
+  function frame(now) {
+    const t = (now - t0) / 1000;
+    ctx.clearRect(0, 0, W, H);
+    if (t < 2.4) {
+      for (let side = 0; side < 2; side++) {
+        const dir = side ? -1 : 1, x0 = side ? W - 34 : 34, y0 = H - 46;
+        for (let i = 0; i < 7; i++) {
+          const a = rnd(-1.25, -0.8), sp = rnd(13, 21);
+          parts.push({ t: 'b', x: x0, y: y0, vx: Math.cos(a) * sp * dir * .7 + (dir * 1.5), vy: Math.sin(a) * sp, s: rnd(2, 5.5), c: gold[(Math.random() * 4) | 0], life: 1 });
+        }
+        ctx.save(); ctx.translate(x0, y0 + 6); ctx.rotate(dir * -0.6); ctx.font = '54px serif'; ctx.textAlign = 'center'; ctx.fillText('🍾', 0, 0); ctx.restore();
+      }
+    }
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      p.x += p.vx; p.y += p.vy;
+      if (p.t === 'c') { p.vy = Math.min(p.vy + .06, 5.5); p.r += p.vr; p.x += Math.sin(p.y / 30) * .8;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 3, p.s, p.s * .6); ctx.restore();
+        if (p.y > H + 20) parts.splice(i, 1);
+      } else { p.vy += .42; p.life -= .011; ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, 6.3); ctx.fill(); ctx.globalAlpha = 1;
+        if (p.life <= 0 || p.y > H + 20) parts.splice(i, 1); }
+    }
+    if (t < 9 && (parts.length || t < 2.4)) fxRaf = requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, H);
+  }
+  fxRaf = requestAnimationFrame(frame);
+}
+
+/* Page Succès */
+async function openAchv() {
+  S.achv = { loaded: false, failed: false, totals: {} };
+  S.view = 'achv'; closeMenu(); render();
+  await loadAchv();
+}
+async function loadAchv(silent) {
+  const a = S.achv; if (!a) return;
+  // PARTIE 1 : sans connexion, derniers totaux connus + modifications en attente, et aucune fête
+  const offline = () => { const t = offlineTotals(); if (!t) { a.nodata = true; a.loaded = true; a.failed = false; a.local = false; return true; }; a.nodata = false; a.totals = t; a.loaded = true; a.failed = false; a.local = true; return true; };
+  try {
+    if (!serverOK()) offline();
+    else {
+      const totals = await fetchTotals(TRACK_KEYS);
+      if (S.achv !== a) return;
+      a.totals = totals; a.loaded = true; a.failed = false; a.nodata = false; a.local = false;
+      applyLevels(totals);
+    }
+  } catch (err) {
+    if (S.achv !== a) return;
+    if (isNetErr(err)) { setNet(true); offline(); }
+    else { a.failed = true; fail(err, 'Chargement des succès'); }
+  }
+  render();
+}
+function viewAchv() {
+  const a = S.achv;
+  let html = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button>' +
+    '<div><div class="hi">Pour toute la famille</div><div class="sub">🏆 Succès</div></div></div>' + HOME_BTN + '</header>';
+  if (a.nodata) return html + '<p class="empty">' + esc(NO_DATA) + '</p>';
+  if (a.local && a.loaded) html += asofHtml(S.local.totalsAt);
+  if (a.failed) return html + '<div class="empty">Impossible de charger les succès. Une connexion est nécessaire.<br><button class="btn alt" data-act="aretry">Réessayer</button></div>';
+  if (!a.loaded) return html + '<p class="empty">Chargement…</p>';
+  return html + TRACK_KEYS.map(k => {
+    const T = TRACKS[k], total = a.totals[k] || 0, L = levelOf(k, total);
+    const prev = L ? T.tiers[L - 1] : 0, next = T.tiers[L];
+    const fmtT = v => nf(Math.round(v * 10) / 10) + (T.unit ? ' ' + T.unit : '');
+    const totalTxt = T.unit ? nf(Math.round(total * 10) / 10) + ' ' + T.unit : nf(total);
+    const pct = next ? Math.min(100, Math.max(0, (total - prev) / (next - prev) * 100)) : 100;
+    const cups = CUPS.map((c, i) => '<div class="ci' + (i < L ? ' got' : '') + '">' + cupSvg(i, 34, i >= L) + '<span>' + esc(fmtT(T.tiers[i])) + '</span></div>').join('');
+    return '<section class="card ach"><div class="ah"><span class="ae">' + T.emoji + '</span><div><b>' + T.title + '</b><div class="soft">' +
+      (L ? 'Coupe ' + esc(CUPS[L - 1].name.toLowerCase()) : 'Pas encore de coupe') + '</div></div><div class="at">' + esc(totalTxt) + '</div></div>' +
+      '<div class="bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+      '<div class="soft small">' + (next ? 'Encore ' + esc(fmtT(Math.max(0, next - total))) + ' pour la coupe ' + esc(CUPS[L].name.toLowerCase()) : 'Tous les paliers sont atteints, bravo !') + '</div>' +
+      '<div class="cups">' + cups + '</div></section>';
+  }).join('');
+}
+
+/* ===== Menu burger ===== */
+function drawerHtml() {
+  const on = k => (S.view === 'stats' && S.stat && S.stat.key === k) ? ' on' : '';
+  return '<div class="dh">PoPoT</div>' +
+    '<button class="mi' + (S.view === 'dashboard' ? ' on' : '') + '" data-act="gohome">🏠 Accueil</button>' +
+    '<div class="mt">Suivi dans le temps</div>' +
+    Object.keys(STATS).map(k => '<button class="mi sub' + on(k) + '" data-act="stat" data-key="' + k + '">' + STATS[k].emoji + ' ' + STATS[k].title + '</button>').join('') +
+    '<div class="mt">Et aussi</div><button class="mi sub' + (S.view === 'achv' ? ' on' : '') + '" data-act="achv">🏆 Succès</button>';
+}
+function openMenu() { $('#drawer').innerHTML = drawerHtml(); $('#drawer').classList.add('on'); $('#dbackdrop').classList.add('on'); }
+function closeMenu() { $('#drawer').classList.remove('on'); $('#dbackdrop').classList.remove('on'); }
+async function openStat(key) {
+  S.stat = { key: key, scale: (S.stat && S.stat.scale) || 'week', offset: 0, items: [], sel: null, req: 0, loading: true, loaded: false, failed: false };
+  S.view = 'stats';
+  closeMenu();
+  await loadStat();
+}
+
+/* ===== Fenêtres : code famille, formulaire, détail, réglages, journal ===== */
+function codeSheet(first) {
+  openSheet('<h2>' + (first ? 'Famille créée 🎉' : 'Code famille') + '</h2>' +
+    '<p class="soft">Partagez ce code avec l\'autre parent : en le saisissant dans l\'application, il rejoint automatiquement votre famille.</p>' +
+    '<div class="bigcode">' + esc(S.code) + '</div>' +
+    '<div class="row"><button class="btn" data-act="share">Partager</button><button class="btn alt" data-act="copy">Copier</button></div>' +
+    '<button class="btn ghost" data-act="close">Fermer</button>');
+}
+
+/* ===== Photos ===== */
+function photoPicker() {
+  const ex = S.form && S.form.photoPath && !S.form.photoGone && !S.photo;
+  if (ex) {
+    return '<div class="photo-prev"><span>📷 Photo déjà enregistrée</span><button type="button" class="mini" data-act="photoremove">Retirer la photo</button></div>' +
+      '<div class="photo-row"><label>📷 Remplacer<input type="file" accept="image/*" capture="environment" data-photo="1"></label>' +
+      '<label>🖼️ Galerie<input type="file" accept="image/*" data-photo="1"></label></div>';
+  }
+  if (S.photo) {
+    return '<div class="photo-prev"><img alt="Photo" src="' + S.photo.url + '"><button type="button" class="mini" data-act="photoremove">Retirer la photo</button></div>';
+  }
+  return '<div class="photo-row">' +
+    '<label>📷 Prendre une photo<input type="file" accept="image/*" capture="environment" data-photo="1"></label>' +
+    '<label>🖼️ Galerie<input type="file" accept="image/*" data-photo="1"></label></div>';
+}
+function setPhoto(p) {
+  if (S.photo && S.photo.url) URL.revokeObjectURL(S.photo.url);
+  S.photo = p;
+  const box = $('#photoBox');
+  if (box) box.innerHTML = photoPicker();
+}
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 1280, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('Conversion de la photo impossible')), 'image/jpeg', 0.8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Photo illisible")); };
+    img.src = url;
+  });
+}
+document.addEventListener('change', async ev => {
+  const inp = ev.target;
+  if (!inp.matches || !inp.matches('input[data-photo]')) return;
+  const file = inp.files && inp.files[0];
+  if (!file) return;
+  try {
+    const blob = await shrinkImage(file);
+    setPhoto({ blob: blob, url: URL.createObjectURL(blob) });
+  } catch (err) {
+    log('Photo : ' + err.message);
+    toast("Cette photo n'a pas pu être lue, essayez-en une autre", 'err');
+  }
+});
+async function uploadPhoto(path, blob) {
+  const r = await S.sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+  return r.error || null;
+}
+async function photoUrl(path) {
+  const r = await S.sb.storage.from('photos').createSignedUrl(path, 3600);
+  return r.error ? null : r.data.signedUrl;
+}
+/* Les photos sont supprimées au bout de 10 jours (nettoyage fait à l'ouverture de l'application). */
+async function cleanOldPhotos() {
+  try {
+    const limit = new Date(Date.now() - 10 * 864e5).toISOString();
+    const r = await S.sb.from('entries').select('id,photo_path').eq('family_id', S.familyId)
+      .not('photo_path', 'is', null).lt('created_at', limit).limit(50);
+    if (r.error || !r.data || !r.data.length) return;
+    await S.sb.storage.from('photos').remove(r.data.map(x => x.photo_path));
+    for (const p of Array.from(new Set(r.data.map(x => x.photo_path)))) await S.sb.from('entries').update({ photo_path: null }).eq('photo_path', p);
+    log('Info : ' + r.data.length + ' ' + plur(r.data.length, 'photo de plus de 10 jours supprimée', 'photos de plus de 10 jours supprimées'));
+  } catch (e) { log('Nettoyage des photos impossible', e && e.message); }
+}
+
+function vlevelOf(label) { const i = VLEVELS.indexOf(label); return i < 0 ? 0 : i + 1; }
+function paintLevel() {
+  const n = S.form ? S.form.level || 0 : 0;
+  document.querySelectorAll('[data-act="vlevel"]').forEach(b => b.classList.toggle('on', Number(b.dataset.n) <= n));
+  const l = $('#vlabel'); if (l) l.textContent = n ? VLEVELS[n - 1] : 'Quantité (facultatif)';
+}
+
+function formSheet(kind, entry) {
+  if (kind === 'couche') return coucheSheet();
+  S.photo = null;
+  const k = KINDS[kind], c = entry ? (S.children.find(x => x.id === entry.child_id) || curChild()) : curChild();
+  S.form = { kind: kind, color: entry ? entry.color : (kind === 'vomi' ? 'blanc' : null), texture: entry && kind === 'caca' ? entry.texture : null,
+    level: entry && kind === 'vomi' ? vlevelOf(entry.texture) : 0, editId: entry ? entry.id : null, photoPath: entry ? entry.photo_path : null, photoGone: false };
+  const pre = (v) => v == null ? '' : esc(fmtQ(v));
+  let body = '';
+  if (kind === 'temperature') {
+    body = '<label class="lbl" for="qTemp">Température (°C)</label><input id="qTemp" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 37,5" value="' + pre(entry && entry.temperature) + '">';
+  } else if (kind === 'biberon') {
+    body = '<label class="lbl" for="qDrunk">Biberon (ml)</label><input id="qDrunk" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 90" value="' + pre(entry && entry.quantity_drunk) + '">' +
+      '<label class="lbl" for="qEaten">Mangé (g)</label><input id="qEaten" class="inp" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 30" value="' + pre(entry && entry.quantity_eaten) + '">';
+  } else {
+    body = '<label class="lbl">Couleur</label><div class="swatches">' +
+      COLORS[kind].map(x => '<button type="button" class="swb" data-act="color" data-name="' + esc(x[0]) + '" aria-label="' + esc(x[0]) + '">' +
+        '<span class="sw" style="background:' + x[1] + '"></span><span class="swl">' + esc(x[0]) + '</span></button>').join('') + '</div>';
+    if (kind === 'caca') {
+      body += '<label class="lbl">Texture</label><div class="chips" style="margin-top:8px">' +
+        TEXTURES.map(t => '<button type="button" class="chip" data-act="texture" data-name="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>';
+    }
+    if (kind === 'vomi') {
+      body += '<label class="lbl">Quantité</label><div class="vl">' +
+        [1, 2, 3, 4, 5].map(n => '<button type="button" data-act="vlevel" data-n="' + n + '" aria-label="' + esc(VLEVELS[n - 1]) + '">' + k.emoji + '</button>').join('') +
+        '</div><div class="vlabel" id="vlabel"></div>';
+    }
+  }
+  openSheet('<h2>' + k.emoji + ' ' + (entry ? 'Modifier : ' + k.label.toLowerCase() : kind === 'biberon' ? 'Alimentation' : 'Ajouter ' + k.art) + '</h2>' +
+    (S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '') + body +
+    '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500">' + esc(entry && entry.comment || '') + '</textarea>' +
+    '<label class="lbl">Photo (facultatif)</label><div id="photoBox">' + photoPicker() + '</div>' +
+    '<label class="lbl" for="when">Heure</label><input id="when" class="inp" type="datetime-local" value="' + inputValue(entry ? new Date(entry.occurred_at) : new Date()) + '">' +
+    '<button class="btn" id="saveBtn" data-act="save">' + (entry ? 'Enregistrer les modifications' : 'Enregistrer') + '</button><button class="btn ghost" data-act="close">Annuler</button>');
+  document.querySelectorAll('.swb').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.color));
+  document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.texture));
+  paintLevel();
+}
+
+/* Formulaire « Couche » : pipi et/ou caca en une seule fois */
+function swatchesHtml(kind, act) {
+  return '<div class="swatches">' + COLORS[kind].map(x => '<button type="button" class="swb" data-act="' + act + '" data-name="' + esc(x[0]) + '" aria-label="' + esc(x[0]) + '">' +
+    '<span class="sw" style="background:' + x[1] + '"></span><span class="swl">' + esc(x[0]) + '</span></button>').join('') + '</div>';
+}
+function coucheSheet() {
+  S.photo = null;
+  const c = curChild();
+  S.form = { kind: 'couche', pipi: false, caca: false, pipiColor: null, cacaColor: null, texture: null, editId: null, photoPath: null, photoGone: false };
+  openSheet('<h2>💩💧 Ajouter une couche</h2>' +
+    (S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '') +
+    '<div class="parts"><button type="button" class="part" id="partPipi" data-act="part" data-part="pipi" style="--c:var(--pipi)"><span>💧</span>Pipi<small>non</small></button>' +
+    '<button type="button" class="part" id="partCaca" data-act="part" data-part="caca" style="--c:var(--caca)"><span>💩</span>Caca<small>non</small></button></div>' +
+    '<div class="sect" id="secPipi" hidden><label class="lbl">Pipi : couleur</label>' + swatchesHtml('pipi', 'pcolor') + '</div>' +
+    '<div class="sect" id="secCaca" hidden><label class="lbl">Caca : couleur</label>' + swatchesHtml('caca', 'ccolor') +
+    '<label class="lbl">Caca : texture</label><div class="chips" style="margin-top:8px">' + TEXTURES.map(t => '<button type="button" class="chip" data-act="texture" data-name="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div></div>' +
+    '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500"></textarea>' +
+    '<label class="lbl">Photo (facultatif)</label><div id="photoBox">' + photoPicker() + '</div>' +
+    '<label class="lbl" for="when">Heure</label><input id="when" class="inp" type="datetime-local" value="' + inputValue(new Date()) + '">' +
+    '<button class="btn" id="saveBtn" data-act="save">Enregistrer</button><button class="btn ghost" data-act="close">Annuler</button>');
+}
+function paintCouche() {
+  const f = S.form;
+  [['pipi', '#partPipi', '#secPipi'], ['caca', '#partCaca', '#secCaca']].forEach(x => {
+    const on = f[x[0]], b = $(x[1]);
+    if (!b) return;
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.querySelector('small').textContent = on ? 'oui' : 'non';
+    $(x[2]).hidden = !on;
+  });
+  document.querySelectorAll('[data-act="pcolor"]').forEach(b => b.classList.toggle('on', b.dataset.name === f.pipiColor));
+  document.querySelectorAll('[data-act="ccolor"]').forEach(b => b.classList.toggle('on', b.dataset.name === f.cacaColor));
+  document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === f.texture));
+}
+
+function findEntry(id) { return S.today.find(e => e.id === id) || S.hist.items.find(e => e.id === id); }
+
+function entrySheet(id) {
+  const e = findEntry(id);
+  if (!e) return;
+  const k = KINDS[e.kind], d = new Date(e.occurred_at);
+  const lines = [];
+  if (e.color) lines.push('Couleur : <span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
+  if (e.texture) lines.push((e.kind === 'vomi' ? 'Quantité : ' : 'Texture : ') + esc(e.texture));
+  if (e.quantity_drunk != null) lines.push('Biberon : ' + fmtQ(e.quantity_drunk) + ' ml');
+  if (e.temperature != null) lines.push('Température : ' + fmtQ(e.temperature) + ' °C');
+  if (e.quantity_eaten != null) lines.push('Mangé : ' + fmtQ(e.quantity_eaten) + ' g');
+  if (e.comment) lines.push('Commentaire : « ' + esc(e.comment) + ' »');
+  openSheet('<h2>' + k.emoji + ' ' + k.label + '</h2>' +
+    '<p class="soft">' + esc(dayLabel(d)) + ' à ' + hhmm(d) + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</p>' +
+    (lines.length ? lines.map(l => '<div class="kv"><span>' + l + '</span></div>').join('') : '<p class="soft">Aucun détail renseigné.</p>') +
+    (e.photo_path ? '<div id="photoShow"><p class="soft">Chargement de la photo…</p></div>' : '') +
+    '<button class="btn" data-act="edit" data-id="' + esc(e.id) + '">✏️ Modifier</button>' +
+    '<button class="btn danger" data-act="delete" data-id="' + esc(e.id) + '">Supprimer</button>' +
+    '<button class="btn ghost" data-act="close">Fermer</button>');
+}
+
+async function showEntryPhoto(path) {
+  let u = null;
+  if (serverOK()) { try { u = await photoUrl(path); } catch (e) { u = null; } }   // les photos ne s'affichent qu'avec une connexion
+  const box = $('#photoShow');
+  if (!box) return;
+  box.innerHTML = u ? '<img class="photo-big" alt="Photo" src="' + esc(u) + '">' : '<p class="soft">Photo indisponible (supprimée ou hors connexion).</p>';
+}
+
+function settingsSheet() {
+  openSheet('<h2>Réglages</h2>' +
+    '<div class="kv"><span class="soft">Code famille</span><b class="mono">' + esc(S.code) + '</b></div>' +
+    '<div class="row"><button class="btn" data-act="share">Partager le code</button><button class="btn alt" data-act="copy">Copier</button></div>' +
+    '<h3>Affichage</h3><div class="sw2"><div><b>Tuiles adaptatives<button class="info" data-act="tip" aria-label="Informations">i</button></b></div>' +
+    '<button class="tgl' + (adaptiveOn() ? ' on' : '') + '" data-act="adaptive" role="switch" aria-checked="' + adaptiveOn() + '" aria-label="Tuiles adaptatives"></button></div>' +
+    '<div class="tip" id="tip" hidden>Les tuiles de l\'accueil se redimensionnent selon ce que vous utilisez le plus ces 10 derniers jours, et remplissent tout l\'écran. Cette option ne concerne que ce téléphone. Désactivée, l\'accueil reste comme d\'habitude.</div>' +
+    '<h3>Enfants</h3>' +
+    S.children.map(c => '<div class="kv"><span>' + esc(childName(c)) + '</span><button class="mini" data-act="rename" data-id="' + esc(c.id) + '">Modifier le prénom</button></div>').join('') +
+    '<button class="btn alt" data-act="addchild">+ Ajouter un enfant</button>' +
+    '<h3>Mode hors connexion</h3><p class="soft small" id="swstate" style="margin:4px 0 0">…</p>' +
+    '<button class="btn alt" data-act="swtoggle" id="swbtn" hidden></button>' +
+    '<h3>Aide</h3><button class="btn alt" data-act="logs" style="margin-top:8px">Journal des erreurs du jour</button>' +
+    (serverOK() ? '<button class="btn danger" data-act="leave">Se déconnecter de cette famille</button>'
+      : '<p class="soft small">Se déconnecter de cette famille nécessite une connexion internet.</p>') +
+    '<button class="btn ghost" data-act="close">Fermer</button><p class="soft small" style="text-align:center">PoPoT version ' + VERSION + '</p>');
+  swStatus();
+}
+// état du mode hors connexion (Réglages) : prêt / en cours d'installation / désactivé / indisponible
+async function swStatus() {
+  const sw = window.PoPoTSW, el = $('#swstate'), bt = $('#swbtn');
+  if (!el || !bt) return;
+  const st = sw ? await sw.state() : 'unsupported';
+  if (!$('#swstate')) return;
+  const txt = { ready: 'Activé : PoPoT peut s\'ouvrir sans connexion.', installing: 'Activé : installation en cours, réessayez dans un instant.', off: 'Désactivé : PoPoT fonctionne uniquement avec une connexion.',
+    unsupported: 'Non disponible sur ce navigateur ou dans ce mode d\'ouverture.' };
+  el.textContent = txt[st] || '';
+  bt.hidden = st === 'unsupported';
+  bt.textContent = st === 'off' ? 'Activer le mode hors connexion' : 'Désactiver le mode hors connexion';
+}
+
+function logsSheet() {
+  const items = todayLog();
+  openSheet('<h2>Journal des erreurs</h2>' +
+    "<p class=\"soft\">Messages du jour, effacés automatiquement chaque jour. Copiez-les pour les envoyer à l'administrateur.</p>" +
+    (items.length
+      ? '<pre class="log">' + esc(items.map(i => hhmm(new Date(i.t)) + '  ' + i.text + (i.tech ? '  [' + i.tech + ']' : '')).join('\n')) + '</pre><button class="btn" data-act="copylog">Copier le journal</button>'
+      : '<p>Aucune erreur aujourd\'hui 🎉</p>') +
+    '<button class="btn ghost" data-act="close">Fermer</button>');
+}
+
+/* ===== Chargement des données ===== */
+function cacheSave() { store.set('popot-cache', { familyId: S.familyId, code: S.code, children: S.children, childId: S.childId }); }
+
+async function loadChildren() {
+  const r = await S.sb.from('children').select('*').eq('family_id', S.familyId).order('created_at');
+  if (r.error) throw r.error;
+  S.children = r.data || [];
+  if (!S.children.find(c => c.id === S.childId)) S.childId = store.get('popot-child', null);
+  if (!S.children.find(c => c.id === S.childId)) S.childId = S.children.length ? S.children[0].id : null;
+  cacheSave();
+}
+
+// lit les entrées du jour sur le serveur, les range dans la copie locale, puis y superpose les modifications en attente
+async function loadToday() {
+  const start = todayStart();
+  const r = await S.sb.from('entries').select('*').eq('family_id', S.familyId)
+    .gte('occurred_at', start.toISOString()).order('occurred_at', { ascending: false });
+  if (r.error) throw r.error;
+  const rows = r.data || [], prev = S.local.entries.filter(e => new Date(e.occurred_at) >= start).length;
+  if (rows.length) { if (S.local.suspectTodayAt) { S.local.suspectTodayAt = null; persistLocal(); } localMergeToday(rows, start); }
+  else if (await acceptEmpty('suspectTodayAt', prev)) localMergeToday(rows, start);
+  S.today = overlay(rows).filter(e => new Date(e.occurred_at) >= start).sort(byTimeDesc);
+}
+
+async function loadHistory(mode) {
+  const H = S.hist;
+  H.loading = true;
+  const from = mode === 'more' ? H.items.length : 0;
+  const size = mode === 'reload' ? Math.max(PAGE, H.items.length) : PAGE;
+  // PARTIE 1 : sans connexion, l'historique (avec ses filtres) vient de la copie locale du téléphone
+  const fromLocal = () => {
+    const f = { child: H.childId, kind: H.kind === 'all' ? null : H.kind };
+    if (H.day) { const s0 = new Date(H.day + 'T00:00:00'), e0 = new Date(s0); e0.setDate(e0.getDate() + 1); f.from = s0; f.to = e0; }
+    const all = localQuery(f).sort(byTimeDesc), page = all.slice(from, from + size);
+    H.items = mode === 'more' ? H.items.concat(page) : page;
+    H.more = all.length > from + size;
+    H.local = true;
+  };
+  try {
+    if (!serverOK()) fromLocal();
+    else {
+      let q = S.sb.from('entries').select('*').eq('family_id', S.familyId);
+      if (H.childId) q = q.eq('child_id', H.childId);
+      if (H.kind !== 'all') q = q.eq('kind', H.kind);
+      if (H.day) {
+        const s = new Date(H.day + 'T00:00:00'), e = new Date(s);
+        e.setDate(e.getDate() + 1);
+        q = q.gte('occurred_at', s.toISOString()).lt('occurred_at', e.toISOString());
+      }
+      const r = await q.order('occurred_at', { ascending: false }).range(from, from + size - 1);
+      if (r.error) throw r.error;
+      H.items = mode === 'more' ? H.items.concat(r.data) : r.data;
+      H.more = r.data.length === size;
+      H.local = false;
+    }
+  } catch (err) {
+    if (isNetErr(err)) { setNet(true); fromLocal(); }
+    else fail(err, "Chargement de l'historique");
+  }
+  H.loading = false;
+}
+
+async function refreshData(force) {
+  if (!S.familyId) return;
+  try {
+    if (serverOK(force)) {
+      await Promise.all([loadChildren(), loadToday()]);
+      setNet(false);
+    } else {
+      S.today = todayFromLocal();
+    }
+    if (adaptiveOn()) await loadUsage();
+    if (S.view === 'history') await loadHistory('reload');
+    if (S.view === 'stats') await loadStat(true);
+    if (S.view === 'achv') loadAchv(true);
+    checkAch();
+    syncLocal();
+  } catch (err) {
+    const f = frError(err);
+    if (f.kind === 'offline' || f.kind === 'down') { setNet(true); log('Actualisation impossible : ' + f.text, err && err.message); S.today = todayFromLocal(); }
+    else fail(err, 'Actualisation des données');
+  }
+  render();
+}
+
+function scheduleRefresh() { clearTimeout(rtTimer); rtTimer = setTimeout(refreshData, 350); }
+
+function subscribe() {
+  if (S.channel) S.sb.removeChannel(S.channel);
+  const f = 'family_id=eq.' + S.familyId;
+  S.channel = S.sb.channel('fam-' + S.familyId)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'entries', filter: f }, scheduleRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: f }, scheduleRefresh)
+    .subscribe();
+}
+
+async function enterFamily() {
+  if (S.code && S.code !== '?') store.set('popot-code', S.code);
+  await loadLocal(S.familyId);
+  await Promise.all([loadChildren(), loadToday()]);
+  setNet(false);                       // le serveur a répondu : on est bien en ligne
+  await loadUsage();
+  if (['loading', 'error', 'welcome'].includes(S.view)) S.view = 'dashboard';
+  subscribe();
+  syncLocal(true);                     // copie complète sur le téléphone à chaque ouverture
+  if (S.queue.length) flushQueue(true);   // les fêtes sont évaluées juste après le renvoi
+  else checkAch(TRACK_KEYS, true);
+  cleanOldPhotos();
+}
+
+async function loadFamily() {
+  const r = await S.sb.from('family_members').select('family_id, families(id, code)')
+    .eq('user_id', S.user.id).order('joined_at', { ascending: false }).limit(1);
+  if (r.error) throw r.error;
+  if (!r.data || !r.data.length) { S.familyId = null; S.view = 'welcome'; return; }
+  const m = r.data[0], fam = Array.isArray(m.families) ? m.families[0] : m.families;
+  S.familyId = m.family_id;
+  S.code = fam ? fam.code : '?';
+  await enterFamily();
+}
+
+/* ===================================================================================
+   MODULE 3 – PARTIE 2 : modifications sans connexion et conflits
+   File d'attente ordonnée (clé « popot-queue »). Trois sortes d'éléments, rejoués dans l'ordre où ils ont été faits :
+     - ajout        : la ligne d'entrée elle-même (format d'origine, donc les anciennes files continuent de marcher)
+     - modification : { op:'update', id, family_id, patch:{…}, at }
+     - suppression  : { op:'delete', id, family_id, kind, photo_path, at }
+   =================================================================================== */
+/* La file est écrite dans le stockage du téléphone à chaque changement. Si ce stockage refuse (plein), la file reste en mémoire
+   (rien n'est perdu tant que l'application reste ouverte) et on prévient calmement, sans bloquer l'écran. */
+const PERSIST_MSG = "Le stockage de ce téléphone est plein : vos modifications sont gardées seulement tant que l'application reste ouverte. Libérez de l'espace, puis laissez l'application ouverte jusqu'au retour du réseau.";
+function saveQueue() {
+  try { localStorage.setItem('popot-queue', JSON.stringify(S.queue)); S.persistFail = false; }
+  catch (e) {
+    if (!S.persistFail) { S.persistFail = true; log('Stockage du téléphone plein : la file des modifications reste en mémoire', e && e.message); }
+    toast(PERSIST_MSG, 'err', 12000);
+  }
+}
+// message après un enregistrement gardé sur le téléphone (remplacé par l'avertissement de stockage si l'écriture a échoué)
+function keptToast(text, type, ms) { if (S.persistFail) toast(PERSIST_MSG, 'err', 12000); else toast(text, type, ms); }
+let flushing = false, inFlight = null;
+const attempts = {};
+const WRITE_TIMEOUT = 8000;      // une écriture qui ne répond pas en 8 s est considérée comme sans réseau
+const wt = p => withTimeout(p, WRITE_TIMEOUT);
+const CONFLICT_MSG = "Une de vos modifications a été abandonnée : l'entrée avait été supprimée par l'autre parent.";
+const permanentCode = c => /^(22|23|42)/.test(c) && c !== '42501' && c !== '23505';
+// une entrée encore uniquement dans la file (jamais envoyée) : on la modifie ou on l'annule sur place
+const queuedInsert = id => S.queue.find(x => opType(x) === 'insert' && x.id === id && x !== inFlight);
+
+function queueInsert(row) { S.queue.push(row); saveQueue(); }
+function queueUpdate(id, patch) {
+  const last = S.queue.slice().reverse().find(x => x.id === id);
+  if (last && opType(last) === 'update' && last !== inFlight) Object.assign(last.patch, patch);
+  else S.queue.push({ op: 'update', id: id, family_id: S.familyId, patch: Object.assign({}, patch), at: new Date().toISOString() });
+  saveQueue();
+}
+function queueDelete(id, old) {
+  S.queue = S.queue.filter(x => !(opType(x) === 'update' && x.id === id && x !== inFlight));   // modifier puis supprimer = supprimer
+  S.queue.push({ op: 'delete', id: id, family_id: S.familyId, kind: old ? old.kind : null, photo_path: (old && old.photo_path) || null, at: new Date().toISOString() });
+  saveQueue();
+}
+
+// un message à montrer au parent concerné (mis de côté si l'application est en arrière-plan)
+function showNotice(text) {
+  log(text);
+  if (document.hidden) store.set('popot-notice', text); else toast(text, 'err', 12000);
+}
+
+async function sendOp(op) {
+  const t = opType(op);
+  if (t === 'insert') return await wt(S.sb.from('entries').insert(op));
+  if (t === 'update') {
+    const r = await wt(S.sb.from('entries').update(op.patch).eq('id', op.id).eq('family_id', op.family_id).select('id'));
+    if (!r.error && Array.isArray(r.data) && r.data.length === 0) r.missing = true;   // l'entrée n'existe plus : la suppression l'emporte
+    return r;
+  }
+  // suppression : si l'entrée a déjà disparu, il ne se passe rien (pas d'erreur)
+  const r = await wt(S.sb.from('entries').delete().eq('id', op.id).eq('family_id', op.family_id));
+  if (!r.error && op.photo_path) removePhotoIfUnused(op.photo_path);
+  return r;
+}
+
+/* Deux fenêtres de l'application sur le même téléphone partagent la même file : un seul envoi à la fois (verrou du navigateur),
+   et la file est relue juste avant d'envoyer (l'autre fenêtre a peut-être déjà tout envoyé : rien ne doit être renvoyé). */
+function readQueue() { return (store.get('popot-queue', []) || []).filter(x => x && typeof x === 'object'); }
+async function flushQueue(force) {
+  if (flushing || !S.queue.length || !S.familyId || !serverOK(force)) return;
+  if (navigator.locks && navigator.locks.request) {
+    let ran = false;
+    try { await navigator.locks.request('popot-flush', { ifAvailable: true }, async lock => { if (!lock) return; ran = true; await flushQueueLocked(force); }); }
+    catch (e) { if (!ran) await flushQueueLocked(force); }
+    return;
+  }
+  await flushQueueLocked(force);
+}
+window.addEventListener('storage', ev => {      // l'autre fenêtre a modifié la file
+  if (ev.key === 'popot-queue' && !flushing && !S.persistFail) { S.queue = readQueue(); renderBanner(); if (S.familyId) showLocalNow(); }
+});
+async function flushQueueLocked(force) {
+  if (flushing) return;
+  if (!S.persistFail) S.queue = readQueue();     // (si le stockage refuse l'écriture, la file en mémoire est la seule à jour)
+  if (!S.queue.length || !S.familyId || !serverOK(force)) { renderBanner(); return; }
+  flushing = true;
+  let done = 0, conflicts = 0, dropped = 0;
+  try {
+    while (S.queue.length) {
+      const op = S.queue[0], t = opType(op), key = t + ':' + op.id;
+      inFlight = op;
+      let r;
+      try { r = await sendOp(op); } catch (e) { r = { error: e }; }
+      inFlight = null;
+      if (r.error && !(t === 'insert' && r.error.code === '23505')) {
+        const f = frError(r.error), code = String(r.error.code || '');
+        if (['offline', 'down', 'quota', 'auth'].includes(f.kind)) {
+          log("Envoi différé impossible, nouvel essai plus tard : " + f.text, r.error.message);
+          if (f.kind === 'offline' || f.kind === 'down') setNet(true);
+          break;                                   // on garde tout, dans l'ordre, pour plus tard
+        }
+        attempts[key] = (attempts[key] || 0) + 1;
+        if (!permanentCode(code) && attempts[key] < 5) { log("Envoi différé : erreur, nouvel essai plus tard : " + f.text, r.error.message); break; }
+        log("Une modification en attente a été abandonnée : " + f.text, r.error.message);
+        dropped++;
+      } else if (r.missing) {
+        conflicts++;
+        log("Modification abandonnée : l'entrée " + op.id + " avait été supprimée par l'autre parent");
+      } else {
+        done++;
+        if (netDown) setNet(false);
+      }
+      S.queue = S.queue.filter(x => x !== op);     // retiré seulement après la réponse du serveur
+      saveQueue(); renderBanner();
+    }
+  } finally {
+    flushing = false; inFlight = null;
+    renderBanner();
+  }
+  if (conflicts) showNotice(conflicts === 1 ? CONFLICT_MSG : conflicts + " de vos modifications ont été abandonnées : les entrées avaient été supprimées par l'autre parent.");
+  await refreshData(true);
+  if (done + conflicts + dropped > 0) checkAch(TRACK_KEYS, true);     // fêtes évaluées juste après le renvoi
+}
+
+async function addEntry(row) {
+  row.id = uuid();
+  if (!serverOK()) { queueInsert(row); log('Entrée gardée en attente : pas de connexion'); return { ok: true, queued: true }; }
+  let r;
+  try { r = await wt(S.sb.from('entries').insert(row)); } catch (e) { r = { error: e }; }
+  if (!r.error || r.error.code === '23505') { mirrorUpsert(row); return { ok: true }; }
+  const f = frError(r.error);
+  if (f.kind === 'offline' || f.kind === 'down') {
+    if (!offlineModeOn()) { writeRefused(r.error); return { ok: false }; }
+    setNet(true);
+    queueInsert(row);
+    log('Entrée gardée en attente : ' + f.text, r.error.message);
+    return { ok: true, queued: true };
+  }
+  fail(r.error, "Ajout d'une entrée");
+  return { ok: false };
+}
+
+// l'écran se met à jour tout de suite avec ce qui est sur le téléphone (sans attendre la réponse, parfois lente, du serveur)
+function showLocalNow() { if (S.familyId) { S.today = todayFromLocal(); render(); } }
+const QUEUED_MSG = 'Enregistré sur ce téléphone, il sera envoyé dès que la connexion revient';
+
+// verrou : un double appui sur « Enregistrer » ne crée jamais deux entrées
+async function saveForm() {
+  if (S.saving) return;
+  S.saving = true;
+  try { await saveFormInner(); } finally { S.saving = false; }
+}
+async function saveFormInner() {
+  const f = S.form;
+  if (!f || !S.childId) return;
+  if (blockedOffline()) return;
+  const btn = $('#saveBtn');
+  btn.disabled = true;
+  const when = $('#when').value;
+  const d = when ? new Date(when) : new Date();
+  if (isNaN(d.getTime())) { toast('Heure invalide', 'err'); btn.disabled = false; return; }
+  const row = { family_id: S.familyId, child_id: S.childId, kind: f.kind, occurred_at: d.toISOString(), comment: $('#comment').value.trim() || null };
+  if (f.kind === 'couche') { await saveCouche(f, row, btn); return; }
+  if (f.kind === 'temperature') {
+    const tv = numOrNull($('#qTemp').value);
+    if (tv == null || tv < 30 || tv > 45) { toast('Saisissez une température entre 30 et 45 °C (ex. 37,5)', 'err'); btn.disabled = false; return; }
+    row.temperature = tv;
+  } else if (f.kind === 'biberon') { row.quantity_drunk = numOrNull($('#qDrunk').value); row.quantity_eaten = numOrNull($('#qEaten').value); }
+  else {
+    row.color = f.color;
+    if (f.kind === 'caca') row.texture = f.texture;
+    if (f.kind === 'vomi') row.texture = f.level ? VLEVELS[f.level - 1] : null;
+  }
+  if (f.editId) { await saveEdit(f, row); btn.disabled = false; return; }
+  let photoNote = null;
+  if (S.photo) {
+    if (!serverOK()) photoNote = 'Hors connexion : l\'entrée est enregistrée sans la photo';   // les photos restent réservées à la connexion
+    else {
+      const path = S.familyId + '/' + uuid() + '.jpg';
+      const perr = await uploadPhoto(path, S.photo.blob);
+      if (perr) { log("Photo non envoyée : " + frError(perr).text, perr.message); photoNote = "La photo n'a pas pu être envoyée (voir le journal), l'entrée est enregistrée sans elle"; }
+      else row.photo_path = path;
+    }
+  }
+  const r = await addEntry(row);
+  if (!r.ok && row.photo_path) S.sb.storage.from('photos').remove([row.photo_path]);
+  btn.disabled = false;
+  if (!r.ok) return;
+  setPhoto(null);
+  closeSheet();
+  if (r.queued) {
+    keptToast(photoNote ? photoNote + '. Elle sera envoyée dès que la connexion revient' : QUEUED_MSG, null, photoNote ? 5000 : 0);
+    showLocalNow(); await refreshData();
+  } else {
+    if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
+    showLocalNow(); await refreshData();
+    checkAch(achKeysFor(row.kind), true);
+  }
+}
+
+/* Couche : crée un pipi et/ou un caca, avec la même heure, le même commentaire et la même photo */
+async function saveCouche(f, base, btn) {
+  if (!f.pipi && !f.caca) { toast('Cochez au moins Pipi ou Caca', 'err'); btn.disabled = false; return; }
+  let photoNote = null;
+  if (S.photo) {
+    if (!serverOK()) photoNote = "Hors connexion : l'entrée est enregistrée sans la photo";
+    else {
+      const path = S.familyId + '/' + uuid() + '.jpg';
+      const perr = await uploadPhoto(path, S.photo.blob);
+      if (perr) { log('Photo non envoyée : ' + frError(perr).text, perr.message); photoNote = "La photo n'a pas pu être envoyée (voir le journal), l'entrée est enregistrée sans elle"; }
+      else base.photo_path = path;
+    }
+  }
+  const rows = [];
+  if (f.pipi) rows.push(Object.assign({}, base, { kind: 'pipi', color: f.pipiColor }));
+  if (f.caca) rows.push(Object.assign({}, base, { kind: 'caca', color: f.cacaColor, texture: f.texture }));
+  let okAny = false, queued = false, failed = false;
+  for (const r of rows) {
+    const res = await addEntry(r);
+    if (res.ok) { okAny = true; if (res.queued) queued = true; } else failed = true;
+  }
+  btn.disabled = false;
+  if (!okAny) { if (base.photo_path) S.sb.storage.from('photos').remove([base.photo_path]); return; }
+  setPhoto(null);
+  closeSheet();
+  if (queued) {
+    keptToast(photoNote ? photoNote + '. Elle sera envoyée dès que la connexion revient' : QUEUED_MSG, null, photoNote ? 5000 : 0);
+    showLocalNow(); await refreshData();
+  } else {
+    if (failed) toast("Une partie de la couche n'a pas pu être enregistrée (voir le journal)", 'err');
+    else if (photoNote) toast(photoNote, 'err'); else toast('Ajouté ✔');
+    showLocalNow(); await refreshData();
+    checkAch(['pipi', 'caca'].filter(k => f[k]), true);
+  }
+}
+
+/* Une photo partagée par un pipi et un caca ne part que quand plus aucune entrée ne l'utilise
+   (ni sur le serveur, ni parmi les ajouts encore en attente sur ce téléphone) */
+async function removePhotoIfUnused(path) {
+  if (!path) return;
+  if (S.queue.some(x => opType(x) !== 'delete' && (x.photo_path === path || (x.patch && x.patch.photo_path === path)))) return;
+  try {
+    const r = await S.sb.from('entries').select('id', { count: 'exact', head: true }).eq('photo_path', path);
+    if (r.error || (r.count || 0) > 0) return;
+  } catch (e) { return; }
+  S.sb.storage.from('photos').remove([path]);
+}
+
+/* Modification d'une entrée déjà enregistrée */
+async function saveEdit(f, row) {
+  const id = f.editId;
+  const payload = { occurred_at: row.occurred_at, comment: row.comment, color: null, texture: null, quantity_drunk: null, quantity_eaten: null, temperature: null };
+  ['color', 'texture', 'quantity_drunk', 'quantity_eaten', 'temperature'].forEach(k => { if (row[k] !== undefined) payload[k] = row[k]; });
+  // entrée encore en attente d'envoi sur ce téléphone : on modifie la copie locale
+  const q = queuedInsert(id);
+  if (q) {
+    Object.assign(q, payload); saveQueue();
+    setPhoto(null); closeSheet(); toast('Modifié ✔'); showLocalNow(); await refreshData(); return;
+  }
+  // sans connexion : la modification entre dans la file (règle : la dernière modification envoyée gagne)
+  const saveLater = async note => {
+    delete payload.photo_path;
+    queueUpdate(id, payload);
+    setPhoto(null); closeSheet();
+    keptToast(note ? note + '. La modification sera envoyée dès que la connexion revient' : 'Modification gardée sur ce téléphone, elle sera envoyée dès que la connexion revient', null, note ? 5000 : 0);
+    showLocalNow(); await refreshData();
+  };
+  const photoTouched = !!S.photo || !!(f.photoGone && f.photoPath);
+  if (!serverOK()) return saveLater(photoTouched ? "Hors connexion : la photo n'a pas été modifiée" : null);
+  let photoNote = null, oldToRemove = null;
+  if (S.photo) {
+    const path = S.familyId + '/' + uuid() + '.jpg';
+    const perr = await uploadPhoto(path, S.photo.blob);
+    if (perr) { log('Photo non envoyée : ' + frError(perr).text, perr.message); photoNote = "La photo n'a pas pu être envoyée (voir le journal), le reste est modifié"; }
+    else { payload.photo_path = path; oldToRemove = f.photoPath; }
+  } else if (f.photoGone && f.photoPath) { payload.photo_path = null; oldToRemove = f.photoPath; }
+  let r;
+  try { r = await wt(S.sb.from('entries').update(payload).eq('id', id).select('id')); } catch (e) { r = { error: e }; }
+  if (r.error) {
+    if (payload.photo_path) S.sb.storage.from('photos').remove([payload.photo_path]);
+    if (isNetErr(r.error) && !offlineModeOn()) return writeRefused(r.error);
+    if (isNetErr(r.error)) { setNet(true); log("Modification gardée en attente : " + frError(r.error).text, r.error.message); return saveLater(photoTouched ? "La photo n'a pas été modifiée" : null); }
+    return fail(r.error, "Modification d'une entrée");
+  }
+  if (Array.isArray(r.data) && r.data.length === 0) {       // l'autre parent a supprimé l'entrée entre-temps : la suppression l'emporte
+    if (payload.photo_path) S.sb.storage.from('photos').remove([payload.photo_path]);
+    setPhoto(null); closeSheet(); mirrorDelete(id);
+    showNotice(CONFLICT_MSG);
+    showLocalNow(); await refreshData();
+    return;
+  }
+  mirrorPatch(id, payload);
+  if (oldToRemove) removePhotoIfUnused(oldToRemove);
+  setPhoto(null);
+  closeSheet();
+  if (photoNote) toast(photoNote, 'err'); else toast('Modifié ✔');
+  showLocalNow(); await refreshData();
+  checkAch(achKeysFor(row.kind), true);
+}
+
+let deleting = false;
+async function deleteEntry(id) {
+  if (deleting) return;
+  deleting = true;
+  try { await deleteEntryInner(id); } finally { deleting = false; }
+}
+async function deleteEntryInner(id) {
+  if (blockedOffline()) return;
+  if (!confirm("Supprimer définitivement cette entrée ?\nCette action est irréversible.")) return;
+  const old = findEntry(id);
+  // ajout jamais envoyé : on annule simplement l'ajout en attente
+  const q = queuedInsert(id);
+  if (q) {
+    S.queue = S.queue.filter(x => x !== q); saveQueue();
+    closeSheet(); toast('Entrée supprimée'); showLocalNow(); await refreshData();
+    return;
+  }
+  const later = async () => {
+    queueDelete(id, old);
+    closeSheet();
+    keptToast('Suppression gardée sur ce téléphone, elle sera envoyée dès que la connexion revient');
+    showLocalNow(); await refreshData();
+  };
+  if (!serverOK()) return later();
+  let r;
+  try { r = await wt(S.sb.from('entries').delete().eq('id', id)); } catch (e) { r = { error: e }; }
+  if (r.error) {
+    if (isNetErr(r.error) && !offlineModeOn()) return writeRefused(r.error);
+    if (isNetErr(r.error)) { setNet(true); log("Suppression gardée en attente : " + frError(r.error).text, r.error.message); return later(); }
+    return fail(r.error, "Suppression d'une entrée");
+  }
+  mirrorDelete(id);
+  if (old && old.photo_path) removePhotoIfUnused(old.photo_path);
+  closeSheet();
+  toast('Entrée supprimée');
+  showLocalNow(); await refreshData();
+  if (old) checkAch(achKeysFor(old.kind), true);
+}
+
+/* ===== Famille : créer, rejoindre, partager, quitter ===== */
+const needNet = () => { if (serverOK()) return true; toast('Cette action nécessite une connexion internet', 'err'); return false; };
+
+async function createFamily() {
+  if (!needNet()) return;
+  const name = $('#newName').value.trim();
+  const r = await S.sb.rpc('create_family', { p_first_name: name || null });
+  if (r.error) return fail(r.error, 'Création de la famille');
+  const row = Array.isArray(r.data) ? r.data[0] : r.data;
+  S.familyId = row.out_family_id;
+  S.code = row.out_code;
+  try { await enterFamily(); } catch (err) { return fail(err, 'Chargement de la famille'); }
+  render();
+  codeSheet(true);
+}
+
+async function joinFamily() {
+  if (!needNet()) return;
+  const code = $('#joinCode').value.trim().toUpperCase().replace(/\s+/g, '');
+  if (code.length < 4) return toast('Saisissez le code famille', 'err');
+  const r = await S.sb.rpc('join_family', { p_code: code });
+  if (r.error) return fail(r.error, 'Rejoindre une famille');
+  try { await loadFamily(); } catch (err) { return fail(err, 'Chargement de la famille'); }
+  render();
+  toast('Bienvenue dans la famille ✔');
+}
+
+async function shareCode() {
+  const text = 'Rejoins notre famille sur PoPoT 👶\nCode famille : ' + S.code + '\n' + location.href.split('#')[0];
+  if (navigator.share) {
+    try { await navigator.share({ text: text }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  location.href = 'sms:?&body=' + encodeURIComponent(text);
+}
+
+async function copyText(text, okMsg) {
+  try { await navigator.clipboard.writeText(text); toast(okMsg); }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast(okMsg); } catch (e2) { toast('Copie impossible sur ce téléphone', 'err'); }
+    ta.remove();
+  }
+}
+
+async function leaveFamily() {
+  if (!needNet()) return;
+  const nq = S.queue.length, extra = nq ? '\n' + nq + ' ' + plur(nq, "modification en attente d'envoi sera perdue", "modifications en attente d'envoi seront perdues") + '.' : '';
+  if (!confirm('Se déconnecter de cette famille sur ce téléphone ?\nVous pourrez la rejoindre à nouveau avec son code.' + extra)) return;
+  if (S.user) {
+    const r = await S.sb.from('family_members').delete().eq('user_id', S.user.id).eq('family_id', S.familyId);
+    if (r.error) return fail(r.error, 'Déconnexion de la famille');
+  }
+  if (S.channel) { S.sb.removeChannel(S.channel); S.channel = null; }
+  S.familyId = null; S.code = null; S.children = []; S.childId = null; S.today = []; S.queue = [];
+  saveQueue(); store.del('popot-cache'); store.del('popot-child'); store.del('popot-code');
+  idb.del(localKey(S.local.familyId)); S.local = emptyLocal(null);
+  S.view = 'welcome';
+  closeSheet();
+  render();
+}
+
+async function addChild() {
+  if (!needNet()) return;
+  const name = prompt("Prénom du nouvel enfant (laisser vide pour rester anonyme)", '');
+  if (name === null) return;
+  const r = await S.sb.from('children').insert({ family_id: S.familyId, first_name: name.trim() || null }).select().single();
+  if (r.error) return fail(r.error, "Ajout d'un enfant");
+  S.childId = r.data.id; store.set('popot-child', S.childId);
+  closeSheet();
+  toast('Enfant ajouté ✔');
+  await refreshData();
+}
+
+async function renameChild(id) {
+  if (!needNet()) return;
+  const c = S.children.find(x => x.id === id);
+  if (!c) return;
+  const name = prompt('Prénom de ' + c.label + ' (laisser vide pour rester anonyme)', c.first_name || '');
+  if (name === null) return;
+  const r = await S.sb.from('children').update({ first_name: name.trim() || null }).eq('id', id);
+  if (r.error) return fail(r.error, "Modification d'un prénom");
+  closeSheet();
+  await refreshData();
+}
+
+/* ===== Démarrage ===== */
+const BOOT_TIMEOUT = 12000;
+const FIRST_RUN_MSG = "Première ouverture : une connexion internet est nécessaire pour créer ou rejoindre une famille. Connectez-vous à internet (Wi-Fi ou données mobiles), puis appuyez sur Réessayer.";
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('Failed to fetch (délai dépassé)')), ms);
+    promise.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
+}
+// recharge la bibliothèque de la base si elle n'avait pas pu être chargée (ouverture sans réseau)
+function ensureLib() {
+  if (window.supabase) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = CDN_LIB;
+    sc.onload = () => window.supabase ? resolve() : reject(new Error('Failed to fetch (bibliothèque non chargée)'));
+    sc.onerror = () => reject(new Error('Failed to fetch (bibliothèque non chargée)'));
+    document.head.appendChild(sc);
+  });
+}
+
+// la partie qui a besoin du réseau : connexion, famille, premières données
+async function onlineBoot() {
+  await ensureLib();
+  if (!S.sb) {
+    S.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+    S.sb.auth.onAuthStateChange(ev => {
+      if (ev === 'SIGNED_OUT' && S.familyId && !S.rebooting) {
+        S.rebooting = true;
+        log('Info : la connexion a expiré, reconnexion automatique');
+        boot().then(() => { S.rebooting = false; }, () => { S.rebooting = false; });
+      }
+    });
+  }
+  const g = await S.sb.auth.getSession();
+  let session = g.data && g.data.session;
+  if (g.error && !session) {
+    const f0 = frError(g.error);
+    if (f0.kind === 'offline' || f0.kind === 'down') throw g.error;
+    log('Info : la connexion mémorisée sur ce téléphone était inutilisable, nouvelle connexion automatique', g.error.message);
+  }
+  if (!session) {
+    const a = await S.sb.auth.signInAnonymously();
+    if (a.error) throw a.error;
+    session = a.data.session;
+    log('Info : nouvelle connexion automatique créée sur ce téléphone');
+  }
+  S.user = session.user;
+  S.confirmed = true;
+  await loadFamily();
+  if (S.view === 'welcome') {
+    const saved = store.get('popot-code', null);
+    if (saved) {
+      const j = await S.sb.rpc('join_family', { p_code: saved });
+      if (j.error) {
+        if (frError(j.error).kind === 'code') { store.del('popot-code'); log("Info : le code famille mémorisé n'existe plus"); }
+        else throw j.error;
+      } else {
+        log('Info : famille retrouvée automatiquement grâce au code mémorisé');
+        await loadFamily();
+      }
+    }
+  }
+}
+
+// démarrage depuis ce qui est enregistré sur le téléphone (copie locale)
+async function startFromLocal(c) {
+  await Promise.race([loadLocal(c.familyId), new Promise(r => setTimeout(r, 2500))]);
+  S.familyId = c.familyId; S.code = c.code; S.children = c.children || []; S.childId = c.childId;
+  S.today = todayFromLocal();
+  S.view = 'dashboard';
+}
+async function boot() {
+  const c0 = store.get('popot-cache', null), haveLocal = !!(c0 && c0.familyId);
+  S.view = 'loading'; render();
+  /* On affiche TOUT DE SUITE la copie du téléphone (s'il y en a une) ; le réseau est contacté ensuite, sans bloquer l'écran.
+     Premier lancement (rien sur le téléphone) : comme avant, on attend le réseau. */
+  if (haveLocal && !S.familyId) { await startFromLocal(c0); render(); }
+  if (!navigator.onLine) setNet(true, !haveLocal);    // sans réseau : la fenêtre d'information s'affiche (s'il y a des données à montrer)
+  try {
+    if (!navigator.onLine) throw new Error('Failed to fetch (hors connexion)');
+    await withTimeout(onlineBoot(), BOOT_TIMEOUT);
+  } catch (err) {
+    const f = frError(err), c = store.get('popot-cache', null);
+    log('Démarrage : ' + f.text, err && err.message);
+    if ((f.kind === 'offline' || f.kind === 'down') && c && c.familyId) {
+      if (!S.familyId) await startFromLocal(c);
+      S.view = 'dashboard';
+      setNet(true);
+    } else if (f.kind === 'offline' || f.kind === 'down') {
+      S.view = 'error'; S.errText = FIRST_RUN_MSG;     // tout premier lancement : il faut du réseau
+      setNet(true, true);
+    } else if (haveLocal && S.familyId) {
+      S.view = 'dashboard'; toast(f.text, 'err');       // erreur inattendue mais la copie du téléphone reste utilisable
+    } else {
+      S.view = 'error'; S.errText = f.text;
+    }
+  }
+  render();
+}
+
+// le réseau est (peut-être) revenu : on renvoie les modifications en attente puis on rafraîchit
+let probing = false;
+async function probe() {
+  if (probing || !navigator.onLine) return;
+  probing = true;
+  try {
+    if (S.view === 'error' && !S.familyId) { probing = false; await boot(); return; }
+    if (!S.user) { await withTimeout(onlineBoot(), BOOT_TIMEOUT); render(); }
+    else if (S.queue.length) await flushQueue(true);
+    else await refreshData(true);
+  } catch (err) { if (!netFail(err)) log('Reconnexion impossible', err && err.message); }
+  finally { probing = false; }
+}
+
+async function toggleOfflineMode() {
+  const sw = window.PoPoTSW;
+  if (!sw || !sw.supported) return;
+  if (sw.off) { await sw.enable(); toast('Mode hors connexion activé'); }
+  else { await sw.disable(); toast('Mode hors connexion désactivé : l\'application fonctionne à nouveau uniquement avec une connexion'); }
+  settingsSheet(); renderBanner();
+}
+
+/* ===== Clics et saisies ===== */
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest('[data-act]');
+  if (!el) return;
+  const a = el.dataset.act;
+  switch (a) {
+    case 'close': closeSheet(); break;
+    case 'offok': hideOffModal(); break;
+    case 'swtoggle': await toggleOfflineMode(); break;
+    case 'retry': boot(); break;
+    case 'create': el.disabled = true; await createFamily(); el.disabled = false; break;
+    case 'join': el.disabled = true; await joinFamily(); el.disabled = false; break;
+    case 'add':
+      if (blockedOffline()) break;
+      if (!S.childId) { toast("Aucun enfant dans cette famille", 'err'); break; }
+      formSheet(el.dataset.kind); break;
+    case 'child':
+      S.childId = el.dataset.id; store.set('popot-child', S.childId); cacheSave(); S.usage = null; await loadUsage(); render();
+      if (S.view === 'stats') { S.stat.sel = null; await loadStat(); }
+      break;
+    case 'menu': openMenu(); break;
+    case 'achv': await openAchv(); break;
+    case 'aretry': await loadAchv(); break;
+    case 'celeclose': closeCele(); break;
+    case 'menuclose': closeMenu(); break;
+    case 'gohome': closeMenu(); S.view = 'dashboard'; render(); break;
+    case 'stat': await openStat(el.dataset.key); break;
+    case 'sscale': S.stat.scale = el.dataset.s; S.stat.offset = 0; S.stat.sel = null; await loadStat(); break;
+    case 'sprev': S.stat.offset -= 1; S.stat.sel = null; await loadStat(); break;
+    case 'snext': if (S.stat.offset < 0) { S.stat.offset += 1; S.stat.sel = null; await loadStat(); } break;
+    case 'sretry': await loadStat(); break;
+    case 'spoint': S.stat.sel = Number(el.dataset.i); render(); break;
+    case 'settings': settingsSheet(); break;
+    case 'history':
+      S.view = 'history';
+      S.hist = { items: [], more: false, loading: true, kind: 'all', childId: S.children.length > 1 ? S.childId : null, day: '' };
+      render(); await loadHistory('fresh'); render(); break;
+    case 'back': S.view = 'dashboard'; render(); break;
+    case 'hchild': S.hist.childId = el.dataset.id || null; render(); await loadHistory('fresh'); render(); break;
+    case 'hkind': S.hist.kind = el.dataset.kind; render(); await loadHistory('fresh'); render(); break;
+    case 'hclear': S.hist.day = ''; render(); await loadHistory('fresh'); render(); break;
+    case 'more': el.disabled = true; await loadHistory('more'); render(); break;
+    case 'color':
+      if (S.form) {
+        S.form.color = S.form.color === el.dataset.name ? null : el.dataset.name;
+        document.querySelectorAll('.swb').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.color));
+      }
+      break;
+    case 'texture':
+      if (S.form) {
+        S.form.texture = S.form.texture === el.dataset.name ? null : el.dataset.name;
+        document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.texture));
+      }
+      break;
+    case 'part': if (S.form && S.form.kind === 'couche') { S.form[el.dataset.part] = !S.form[el.dataset.part]; paintCouche(); } break;
+    case 'pcolor': if (S.form) { S.form.pipiColor = S.form.pipiColor === el.dataset.name ? null : el.dataset.name; paintCouche(); } break;
+    case 'ccolor': if (S.form) { S.form.cacaColor = S.form.cacaColor === el.dataset.name ? null : el.dataset.name; paintCouche(); } break;
+    case 'adaptive': store.set('popot-adaptive', !adaptiveOn()); await loadUsage(); settingsSheet(); render(); break;
+    case 'tip': { const t = $('#tip'); if (t) t.hidden = !t.hidden; break; }
+    case 'vlevel':
+      if (S.form) { const n = Number(el.dataset.n); S.form.level = S.form.level === n ? 0 : n; paintLevel(); }
+      break;
+    case 'edit': { if (blockedOffline()) break; const ee = findEntry(el.dataset.id); if (ee) { closeSheet(); formSheet(ee.kind, ee); } break; }
+    case 'save': await saveForm(); break;
+    case 'open': { entrySheet(el.dataset.id); const pe = findEntry(el.dataset.id); if (pe && pe.photo_path) showEntryPhoto(pe.photo_path); break; }
+    case 'photoremove':
+      if (S.photo) setPhoto(null);
+      else if (S.form) { S.form.photoGone = true; const bx = $('#photoBox'); if (bx) bx.innerHTML = photoPicker(); }
+      break;
+    case 'delete': await deleteEntry(el.dataset.id); break;
+    case 'share': await shareCode(); break;
+    case 'copy': await copyText(S.code, 'Code copié'); break;
+    case 'logs': logsSheet(); break;
+    case 'copylog': await copyText(todayLog().map(i => hhmm(new Date(i.t)) + ' ' + i.text + (i.tech ? ' [' + i.tech + ']' : '')).join('\n'), 'Journal copié'); break;
+    case 'addchild': await addChild(); break;
+    case 'rename': await renameChild(el.dataset.id); break;
+    case 'leave': await leaveFamily(); break;
+  }
+});
+
+document.addEventListener('change', async ev => {
+  if (ev.target && ev.target.id === 'hday') {
+    S.hist.day = ev.target.value || '';
+    render(); await loadHistory('fresh'); render();
+  }
+});
+
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'joinCode') { ev.preventDefault(); joinFamily(); }
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'newName') { ev.preventDefault(); createFamily(); }
+  if (ev.key === 'Escape') { hideOffModal(); closeSheet(); }
+});
+
+window.addEventListener('online', () => { renderBanner(); probe(); });
+window.addEventListener('offline', () => setNet(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const n = store.get('popot-notice', null);
+  if (n) { store.del('popot-notice'); toast(n, 'err', 12000); }
+  if (S.familyId) probe();
+});
+
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* rien */ }
+todayLog();
+boot();
+})();
+</script>
+</body>
+</html>
