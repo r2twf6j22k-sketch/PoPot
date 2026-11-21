@@ -109,3 +109,25 @@ async function staleWhileRevalidate(event, key) {
   event.waitUntil(fresh.catch(() => {}));
   return hit || fresh;
 }
+
+// Notification « Bébé dort » (affichée par la page via registration.showNotification) : la toucher la ferme, puis
+//  - si PoPoT est déjà ouvert : on le met au premier plan et on lui envoie un message (la page ouvre « Dodo en cours »),
+//  - sinon on ouvre ./?dodo=stop (la page lit ce paramètre au démarrage). Jamais d'arrêt automatique du dodo.
+// Rien ici ne dépend de l'objet Notification (absent sur certains navigateurs) : seule la page l'utilise.
+self.addEventListener('notificationclick', event => {
+  const n = event.notification;
+  try { n.close(); } catch (e) { /* rien */ }
+  const data = (n && n.data) || {};
+  event.waitUntil((async () => {
+    let list = [];
+    try { list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true }); } catch (e) { /* rien */ }
+    const mine = list.filter(c => c.url && c.url.startsWith(SCOPE));
+    if (mine.length) {
+      const c = mine.find(x => x.focused) || mine.find(x => x.visibilityState === 'visible') || mine[0];
+      try { c.postMessage({ type: 'popot-dodo-open', childId: data.childId || null, entryId: data.entryId || null }); } catch (e) { /* rien */ }
+      try { await c.focus(); } catch (e) { /* rien */ }
+      return;
+    }
+    try { await self.clients.openWindow(new URL('./?dodo=stop', SCOPE).href); } catch (e) { /* rien */ }
+  })());
+});
