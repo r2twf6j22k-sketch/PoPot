@@ -293,6 +293,14 @@ textarea.inp{min-height:76px;resize:vertical}
 pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radius:12px;padding:12px;font-size:12.5px;max-height:44dvh;overflow:auto}
 
 /* dodo : formulaire, histogramme des horaires */
+.chrono{display:block;font-size:30px;font-weight:800;line-height:1.1;color:var(--ink);font-variant-numeric:tabular-nums}
+.cum{display:block;margin-top:2px}
+.tile.sleeping{gap:6px}
+.mosaic .tile.sleeping{min-height:150px}
+.mosaic .tile.sleeping .meta{display:block!important;font-size:13px}
+.stopbtn{border:0;border-radius:14px;padding:10px 26px;font-weight:800;font-size:16px;background:var(--ink);color:var(--card);cursor:pointer}
+.bigchrono{display:block;text-align:center;font-size:54px;font-weight:800;font-variant-numeric:tabular-nums;margin:14px 0 2px}
+.btn.stop{background:var(--ink);color:var(--card);font-size:22px;padding:20px 18px}
 .dinfo{margin:10px 0 0;min-height:22px;font-weight:600}
 .dinfo.bad{color:var(--danger)}
 .dtag{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
@@ -734,6 +742,16 @@ function dodoEndMs(e, now) {
   const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
   return Math.max(s, en);
 }
+// dodos qui se chevauchent : tous restent dans l'historique, mais dans les calculs et les graphes le PLUS LONG l'emporte
+// (un dodo plus court qui en chevauche un plus long est ignoré : jamais de double comptage). Dodo en cours = durée jusqu'à maintenant.
+// Égalité de durée : le premier endormi gagne. Deux dodos qui se touchent seulement (fin = début) ne se chevauchent pas.
+function dominantDodos(list, now) {
+  const it = list.map(e => { const s = new Date(e.occurred_at).getTime(); return { e: e, s: s, en: dodoEndMs(e, now) }; })
+    .sort((a, b) => (b.en - b.s) - (a.en - a.s) || a.s - b.s);
+  const kept = [];
+  it.forEach(x => { if (!kept.some(k => x.s < k.en && k.s < x.en)) kept.push(x); });
+  return kept.sort((a, b) => a.s - b.s).map(x => x.e);
+}
 // nuit si le dodo touche la fenêtre 20h-7h (début, fin ou milieu) ou dure plus de 7 h ; sinon sieste
 function dodoType(s, en) {
   if (en - s > NIGHT_LONG_MS) return 'nuit';
@@ -756,6 +774,7 @@ function splitDays(s, en) {
 }
 // temps de sommeil dans [a, b] (en ms) : les intervalles qui se chevauchent ne sont comptés qu'une fois
 function sleepBetween(list, a, b, now) {
+  list = dominantDodos(list, now);
   const iv = [];
   list.forEach(e => { const s = Math.max(new Date(e.occurred_at).getTime(), a), en = Math.min(dodoEndMs(e, now), b); if (en > s) iv.push([s, en]); });
   iv.sort((x, y) => x[0] - y[0]);
@@ -765,6 +784,7 @@ function sleepBetween(list, a, b, now) {
 }
 // sommeil de nuit / de sieste (ms) dans chaque case [bornes[i], bornes[i+1]] ; le type est celui du dodo ENTIER
 function bucketSleep(list, bounds, now) {
+  list = dominantDodos(list, now);
   const n = bounds.length - 1, out = Array.from({ length: n }, () => ({ nuit: 0, sieste: 0 }));
   list.forEach(e => {
     const s = new Date(e.occurred_at).getTime(), en = dodoEndMs(e, now), ty = dodoType(s, en);
@@ -788,7 +808,12 @@ function fmtDur(ms) {
   const mins = Math.max(0, Math.floor((Number(ms) || 0) / 60000)), h = Math.floor(mins / 60), m = mins % 60;
   return h ? (m ? h + ' h ' + pad(m) : h + ' h') : m + ' min';
 }
-window.PoPoTLogic = { dodoType: dodoType, splitDays: splitDays, sleepBetween: sleepBetween, bucketSleep: bucketSleep, periodBounds: periodBounds, fmtDur: fmtDur };
+// chrono « h:mm:ss » (« 1:12:05 ») calculé depuis des horodatages, jamais depuis un compteur
+function fmtChrono(ms) {
+  const t = Math.max(0, Math.floor((Number(ms) || 0) / 1000)), h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), sec = t % 60;
+  return h + ':' + pad(m) + ':' + pad(sec);
+}
+window.PoPoTLogic = { fmtChrono: fmtChrono, dominantDodos: dominantDodos, dodoType: dodoType, splitDays: splitDays, sleepBetween: sleepBetween, bucketSleep: bucketSleep, periodBounds: periodBounds, fmtDur: fmtDur };
 
 /* ----- dodos de l'enfant : copie du téléphone + modifications en attente ----- */
 function dodoList(childId) {
@@ -798,19 +823,26 @@ function dodoList(childId) {
 function dodoOpen(childId) {
   return dodoList(childId).filter(e => !e.ended_at).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at))[0] || null;
 }
-function dodoTileText(childId, now) {
+// contenu de la tuile : bébé dort = chrono (depuis l'heure de départ) + cumul du jour ; sinon cumul du jour
+function dodoTileMeta(childId, now) {
   now = now || Date.now();
   const list = dodoList(childId), open = dodoOpen(childId), cum = sleepBetween(list, todayStart().getTime(), now, now);
-  if (open) return '😴 Dort depuis ' + fmtDur(now - new Date(open.occurred_at).getTime()) + ' · cumul ' + fmtDur(cum);
-  return cum >= 60000 ? fmtDur(cum) : "Aucun aujourd'hui";
+  if (open) return '<span class="chrono" id="dodoChrono">' + fmtChrono(now - new Date(open.occurred_at).getTime()) + '</span><span class="cum">cumul ' + fmtDur(cum) + '</span>';
+  return esc(cum >= 60000 ? fmtDur(cum) : "Aucun aujourd'hui");
 }
-// un seul minuteur, aligné sur la minute, uniquement tant que l'accueil est affiché
-let dodoTimer = null;
-function updateDodoMeta() { const m = $('#dodoMeta'), c = curChild(); if (m && c) m.textContent = dodoTileText(c.id); }
+// un seul minuteur : chaque seconde tant qu'un dodo est en cours (tuile ou écran « Dodo en cours »), sinon chaque minute ; aucun hors de l'accueil
+let dodoTimer = null, dodoPeriod = 0;
+function updateDodoMeta() {
+  const c = curChild(), m = $('#dodoMeta');
+  if (m && c) m.innerHTML = dodoTileMeta(c.id);
+  if (S.form && S.form.kind === 'dodo' && S.form.mode === 'run') paintDodo();
+}
 function syncDodoTimer() {
-  const need = S.view === 'dashboard' && !!$('#dodoMeta');
-  if (need && !dodoTimer) dodoTimer = setTimeout(() => { dodoTimer = null; updateDodoMeta(); syncDodoTimer(); }, 60000 - (Date.now() % 60000) + 20);
-  else if (!need && dodoTimer) { clearTimeout(dodoTimer); dodoTimer = null; }
+  const c = curChild(), need = S.view === 'dashboard' && !!$('#dodoMeta'), period = need && c && dodoOpen(c.id) ? 1000 : 60000;
+  if (!need) { if (dodoTimer) { clearTimeout(dodoTimer); dodoTimer = null; } return; }
+  if (dodoTimer && dodoPeriod === period) return;
+  clearTimeout(dodoTimer); dodoPeriod = period;
+  dodoTimer = setTimeout(() => { dodoTimer = null; updateDodoMeta(); syncDodoTimer(); }, period - (Date.now() % period) + 15);
 }
 // dodos de l'enfant qui touchent [a, b[ (y compris ceux commencés avant a)
 function dodoOverlap(childId, a, b, now) {
@@ -903,7 +935,6 @@ function viewDashboard() {
   const c = curChild();
   const mine = S.today.filter(e => e.child_id === (c && c.id));
   const stat = k => {
-    if (k === 'dodo') return dodoTileText(c && c.id);
     if (k === 'couche') {
       const l = mine.filter(e => e.kind === 'pipi' || e.kind === 'caca');
       if (!l.length) return "Aucune aujourd'hui";
@@ -914,8 +945,14 @@ function viewDashboard() {
     return l.length ? l.length + " aujourd'hui · dernier à " + hhmm(new Date(l[0].occurred_at)) : "Aucun aujourd'hui";
   };
   const emo = k => k === 'couche' ? '<span class="em em2">💩💧</span>' : '<span class="em">' + KINDS[k].emoji + '</span>';
-  const tile = (k, size, style) => '<button class="tile ' + size + '" style="--c:var(--' + (k === 'couche' ? 'caca' : k === 'dodo' ? 'nuit' : k) + ');' + (style || '') + '" data-act="add" data-kind="' + k + '">' +
-    emo(k) + '<span class="nm">' + KINDS[k].label + '</span><span class="meta"' + (k === 'dodo' ? ' id="dodoMeta"' : '') + '>' + esc(stat(k)) + '</span></button>';
+  const dodoTile = (size, style) => {
+    const sl = !!(c && dodoOpen(c.id)), st = 'style="--c:var(--nuit);' + (style || '') + '" data-act="add" data-kind="dodo"';
+    const inner = '<span class="em">' + KINDS.dodo.emoji + '</span><span class="nm">' + KINDS.dodo.label + '</span><span class="meta" id="dodoMeta">' + dodoTileMeta(c && c.id) + '</span>' +
+      (sl ? '<button type="button" class="stopbtn" data-act="dodostop">⏹ Stop</button>' : '');
+    return sl ? '<div class="tile ' + size + ' sleeping" role="button" tabindex="0" ' + st + '>' + inner + '</div>' : '<button class="tile ' + size + '" ' + st + '>' + inner + '</button>';
+  };
+  const tile = (k, size, style) => k === 'dodo' ? dodoTile(size, style) : '<button class="tile ' + size + '" style="--c:var(--' + (k === 'couche' ? 'caca' : k === 'dodo' ? 'nuit' : k) + ');' + (style || '') + '" data-act="add" data-kind="' + k + '">' +
+    emo(k) + '<span class="nm">' + KINDS[k].label + '</span><span class="meta">' + esc(stat(k)) + '</span></button>';
   const tabs = S.children.length > 1
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
     : '';
@@ -1249,8 +1286,9 @@ async function fetchDodoPeriod(p) {
   return all.sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
 }
 function dodoSummary(st, p, bs, now) {
+  const items = dominantDodos(st.items, now);
   const total = bs.reduce((a, b) => a + b.nuit + b.sieste, 0);
-  const naps = st.items.filter(e => { const s = new Date(e.occurred_at).getTime(); return s >= p.start.getTime() && s < p.end.getTime() && dodoType(s, dodoEndMs(e, now)) === 'sieste'; });
+  const naps = items.filter(e => { const s = new Date(e.occurred_at).getTime(); return s >= p.start.getTime() && s < p.end.getTime() && dodoType(s, dodoEndMs(e, now)) === 'sieste'; });
   const avg = naps.length ? naps.reduce((a, e) => a + dodoEndMs(e, now) - new Date(e.occurred_at).getTime(), 0) / naps.length : 0;
   return 'Total : ' + fmtDur(total) + ' · ' + (naps.length ? naps.length + ' ' + plur(naps.length, 'sieste', 'siestes') + " · durée moyenne d'une sieste : " + fmtDur(avg) : 'aucune sieste');
 }
@@ -1259,7 +1297,7 @@ const dodoRange = (e, now) => { const s = new Date(e.occurred_at), en = e.ended_
   return en ? hhmm(s) + ' → ' + hhmm(en) + ' (' + fmtDur(en - s) + ')' : 'dort depuis ' + hhmm(s) + ' (' + fmtDur(now - s.getTime()) + ')'; };
 
 function dodoCard(st, p) {
-  const now = Date.now(), bounds = periodBounds(st.scale, st.offset), bs = bucketSleep(st.items, bounds, now);
+  const now = Date.now(), items = dominantDodos(st.items, now), bounds = periodBounds(st.scale, st.offset), bs = bucketSleep(items, bounds, now);
   const day = st.scale === 'day', unitMs = day ? 60000 : 3600e3;
   const W = 360, H = 230, L = 40, R = 14, T = 20, Bm = 28, pw = W - L - R, ph = H - T - Bm, cw = pw / p.n;
   const vals = bs.map(b => ({ n: b.nuit / unitMs, s: b.sieste / unitMs }));
@@ -1289,7 +1327,7 @@ function dodoCard(st, p) {
   let detail = '<p class="soft hint">Touchez une barre pour voir le détail.</p>';
   if (st.sel != null && st.sel <= p.last) {
     const b = bs[st.sel], a0 = bounds[st.sel], a1 = bounds[st.sel + 1];
-    const list = st.items.filter(e => { const s = new Date(e.occurred_at).getTime(); return s < a1 && (dodoEndMs(e, now) > a0 || s >= a0); });
+    const list = items.filter(e => { const s = new Date(e.occurred_at).getTime(); return s < a1 && (dodoEndMs(e, now) > a0 || s >= a0); });
     detail = '<h3>' + esc(p.btitle(st.sel)) + '</h3>';
     if (!list.length) detail += '<p class="soft">Aucun dodo sur cette période.</p>';
     else {
@@ -1308,7 +1346,7 @@ function dodoCard(st, p) {
 /* Histogramme « Horaires » : une colonne par jour, 0h en haut et 24h en bas ; chaque dodo est un rectangle de son heure de début à son heure de fin
    (coupé à minuit : un morceau sur chaque colonne). La zone teintée est l'horaire de nuit (20h-7h). */
 function horairesCard(st, p) {
-  const now = Date.now();
+  const now = Date.now(), items = dominantDodos(st.items, now);
   const bounds = st.scale === 'day' ? [p.start.getTime(), p.end.getTime()] : periodBounds(st.scale, st.offset), n = bounds.length - 1;
   const W = 360, H = 340, L = 34, R = 10, T = 12, Bm = 38, pw = W - L - R, ph = H - T - Bm, cw = pw / n;
   const Y = (t, i) => T + ph * Math.max(0, Math.min(1, (t - bounds[i]) / (bounds[i + 1] - bounds[i])));
@@ -1326,7 +1364,7 @@ function horairesCard(st, p) {
   }
   const bw = Math.min(cw * (n > 20 ? 0.8 : 0.62), 64);
   let bars = '', hits = '';
-  st.items.forEach(e => {
+  items.forEach(e => {
     const s = new Date(e.occurred_at).getTime(), en = dodoEndMs(e, now), t = dodoType(s, en), sel = st.selId === e.id;
     for (let i = 0; i < n; i++) {
       if (bounds[i] >= en && en > s) break;
@@ -1338,8 +1376,8 @@ function horairesCard(st, p) {
     }
   });
   const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Horaires de dodo : une colonne par jour, de 0h en haut à 24h en bas, nuit et sieste">' + g + bars + hits + '</svg>';
-  const sel = st.selId ? st.items.find(e => e.id === st.selId) : null;
-  let detail = '<p class="soft hint">' + (st.items.length ? 'Touchez une barre pour voir les horaires.' : 'Aucun dodo sur cette période.') + '</p>';
+  const sel = st.selId ? items.find(e => e.id === st.selId) : null;
+  let detail = '<p class="soft hint">' + (items.length ? 'Touchez une barre pour voir les horaires.' : 'Aucun dodo sur cette période.') + '</p>';
   if (sel) {
     const s = new Date(sel.occurred_at), en = sel.ended_at ? new Date(sel.ended_at) : null, t = dodoType(s.getTime(), dodoEndMs(sel, now));
     const long = d => fr(d, { weekday: 'long', day: 'numeric', month: 'long' }) + ' à ' + hhmm(d);
@@ -1347,7 +1385,7 @@ function horairesCard(st, p) {
       '<p style="margin:0"><b>' + hhmm(s) + ' → ' + (en ? hhmm(en) : '…') + '</b></p>' +
       '<p class="soft" style="margin:4px 0 0">Endormi ' + esc(long(s)) + (en ? '<br>Réveillé ' + esc(long(en)) : '<br>Bébé dort encore') + '</p>' + (sel.comment ? '<p style="margin:6px 0 0">« ' + esc(sel.comment) + ' »</p>' : '');
   }
-  const bs = bucketSleep(st.items, bounds, now);
+  const bs = bucketSleep(items, bounds, now);
   return '<div class="chartcard"><div class="legend"><b>' + esc(dodoSummary(st, p, bs, now)) + '</b></div>' + dodoLegend +
     '<div class="legend soft"><span>Zone teintée : horaire de nuit (20h-7h)</span></div>' + svg + '</div><div class="card detail">' + detail + '</div>';
 }
@@ -1719,110 +1757,130 @@ function formSheet(kind, entry) {
    - new  : bébé ne dort pas -> heure d'endormissement (maintenant), réveil facultatif (vide = il s'endort maintenant), commentaire
    - wake : bébé dort -> « Réveil » : une seule heure (maintenant), qui met à jour la même entrée
    - edit : modification depuis l'historique */
-function dodoSheet(entry) {
+function dodoSheet(entry, forceMode) {
   S.photo = null;
   const c = entry ? (S.children.find(x => x.id === entry.child_id) || curChild()) : curChild();
   const open = entry ? null : dodoOpen(c && c.id);
-  const mode = entry ? 'edit' : open ? 'wake' : 'new';
-  S.form = { kind: 'dodo', mode: mode, childId: c && c.id, editId: entry ? entry.id : null, wakeId: open ? open.id : null, photoPath: null, photoGone: false };
+  const mode = entry ? 'edit' : forceMode || (open ? 'run' : 'start');
+  const src = entry || (mode === 'run' ? open : null);
+  S.form = { kind: 'dodo', mode: mode, childId: c && c.id, editId: src ? src.id : null, photoPath: null, photoGone: false };
   const who = S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '';
   const inp = (id, ms) => '<input id="' + id + '" class="inp" type="datetime-local" value="' + (ms == null ? '' : inputValue(new Date(ms))) + '">';
-  let title, body, btn;
-  if (mode === 'wake') {
-    const s = new Date(open.occurred_at);
-    title = 'Réveil'; btn = 'Enregistrer le réveil';
-    body = '<p class="soft">Endormi : ' + esc(dayLabel(s)) + ' à ' + hhmm(s) + '</p>' +
-      '<label class="lbl" for="dEnd">Heure de réveil</label>' + inp('dEnd', Date.now()) + '<div id="dInfo" class="dinfo" aria-live="polite"></div>';
-  } else {
-    title = entry ? 'Modifier : dodo' : 'Dodo'; btn = entry ? 'Enregistrer les modifications' : 'Enregistrer';
-    body = '<label class="lbl" for="dStart">Heure d\'endormissement</label>' + inp('dStart', entry ? new Date(entry.occurred_at).getTime() : Date.now()) +
-      '<label class="lbl" for="dEnd">Heure de réveil (facultatif)</label>' + inp('dEnd', entry && entry.ended_at ? new Date(entry.ended_at).getTime() : null) +
-      '<p class="soft small" style="margin:6px 0 0">Laissez vide si bébé vient de s\'endormir : vous saisirez le réveil plus tard.</p>' +
-      '<div id="dInfo" class="dinfo" aria-live="polite"></div>' +
-      '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500">' + esc(entry && entry.comment || '') + '</textarea>';
+  const startMs = src ? new Date(src.occurred_at).getTime() : Date.now();
+  const comment = '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500">' + esc(src && src.comment || '') + '</textarea>';
+  const info = '<div id="dInfo" class="dinfo" aria-live="polite"></div>';
+  let title, body, btns;
+  if (mode === 'start') {          // chrono : on démarre, le réveil se fait avec « Stop »
+    title = 'Démarrer un dodo';
+    body = '<label class="lbl" for="dStart">Heure de départ</label>' + inp('dStart', startMs) + info + comment;
+    btns = '<button class="btn" id="saveBtn" data-act="save" style="font-size:20px;padding:20px 18px">▶ Démarrer</button>' +
+      '<button class="btn ghost" data-act="dodopast" style="margin-top:6px;font-size:14px">Saisir un dodo déjà terminé</button><button class="btn ghost" data-act="close" style="margin-top:0">Annuler</button>';
+  } else if (mode === 'run') {     // dodo en cours : gros chrono, départ modifiable, Stop
+    title = 'Dodo en cours';
+    body = '<span class="bigchrono" id="dChrono">0:00:00</span>' + info +
+      '<label class="lbl" for="dStart">Heure de départ</label>' + inp('dStart', startMs) + comment;
+    btns = '<button class="btn stop" id="stopBtn" data-act="dodostopform">⏹ Stop</button>' +
+      '<button class="btn alt" id="saveBtn" data-act="save">Enregistrer les modifications</button><button class="btn ghost" data-act="close">Fermer</button>';
+  } else {                         // past (dodo déjà terminé) ou edit (historique)
+    title = mode === 'edit' ? 'Modifier : dodo' : 'Saisir un dodo déjà terminé';
+    body = '<label class="lbl" for="dStart">Heure d\'endormissement</label>' + inp('dStart', startMs) +
+      '<label class="lbl" for="dEnd">Heure de réveil' + (mode === 'edit' ? ' (facultatif)' : '') + '</label>' + inp('dEnd', src && src.ended_at ? new Date(src.ended_at).getTime() : null) +
+      (mode === 'edit' ? '<p class="soft small" style="margin:6px 0 0">Laissez vide si bébé dort encore.</p>' : '') + info + comment;
+    btns = '<button class="btn" id="saveBtn" data-act="save">' + (mode === 'edit' ? 'Enregistrer les modifications' : 'Enregistrer') + '</button><button class="btn ghost" data-act="close">Annuler</button>';
   }
-  openSheet('<h2>' + KINDS.dodo.emoji + ' ' + title + '</h2>' + who + body +
-    '<button class="btn" id="saveBtn" data-act="save">' + btn + '</button><button class="btn ghost" data-act="close">Annuler</button>');
+  openSheet('<h2>' + KINDS.dodo.emoji + ' ' + title + '</h2>' + who + body + btns);
   paintDodo();
 }
-// lit et vérifie les heures saisies ; renvoie { s, en } (en = null si pas de réveil) ou { error }
+// lit et vérifie les heures saisies ; renvoie { s, en } (en = null : pas de réveil) ou { error }
 function readDodo(f) {
-  const now = Date.now();
-  let s;
-  if (f.mode === 'wake') {
-    const e = dodoList(f.childId).find(x => x.id === f.wakeId);
-    if (!e) return { error: "Ce dodo n'existe plus (supprimé par l'autre parent)" };
-    s = new Date(e.occurred_at).getTime();
-  } else {
-    const v = $('#dStart').value;
-    s = v ? new Date(v).getTime() : NaN;
-    if (isNaN(s)) return { error: "Indiquez l'heure d'endormissement" };
-    if (s > now) return { error: "L'heure d'endormissement ne peut pas être dans le futur" };
-  }
-  const ev = $('#dEnd').value;
-  if (!ev) return f.mode === 'wake' ? { error: "Indiquez l'heure de réveil" } : { s: s, en: null };
+  const now = Date.now(), v = $('#dStart') && $('#dStart').value;
+  const s = v ? new Date(v).getTime() : NaN;
+  if (isNaN(s)) return { error: "Indiquez l'heure d'endormissement" };
+  if (s > now) return { error: "L'heure d'endormissement ne peut pas être dans le futur" };
+  const ev = $('#dEnd') ? $('#dEnd').value : '';
+  if (!ev) return f.mode === 'past' ? { error: "Indiquez l'heure de réveil" } : { s: s, en: null };
   const en = new Date(ev).getTime();
   if (isNaN(en)) return { error: 'Heure de réveil invalide' };
   if (en < s) return { error: "Le réveil ne peut pas être avant l'endormissement" };
   if (en > now) return { error: "L'heure de réveil ne peut pas être dans le futur" };
   return { s: s, en: en };
 }
-// affiche en direct le type calculé (Nuit / Sieste) et la durée
+// affiche en direct le type calculé (Nuit / Sieste), la durée et, en cours de dodo, le chrono
 function paintDodo() {
   const f = S.form, el = $('#dInfo');
   if (!f || f.kind !== 'dodo' || !el) return;
-  const r = readDodo(f);
+  const r = readDodo(f), now = Date.now();
   let html = '', bad = false;
   if (r.error) { bad = !/^Indiquez/.test(r.error); html = bad ? esc(r.error) : ''; }
   else {
-    const now = Date.now(), end = r.en === null ? Math.max(now, r.s) : r.en, t = dodoType(r.s, end);
+    const end = r.en === null ? Math.max(now, r.s) : r.en, t = dodoType(r.s, end);
     html = '<span class="dtag" style="background:var(--' + t + ')"></span><b>' + TYPE_LABEL[t] + '</b> · ' +
       (r.en === null ? 'en cours' + (end - r.s >= 60000 ? ' depuis ' + fmtDur(end - r.s) : '') : fmtDur(end - r.s));
   }
   el.className = 'dinfo' + (bad ? ' bad' : '');
   el.innerHTML = html;
+  const ch = $('#dChrono');
+  if (ch) ch.textContent = r.error ? '–:––:––' : fmtChrono(now - r.s);
 }
-const WAKE_LATER = 'Réveil gardé sur ce téléphone, il sera envoyé dès que la connexion revient';
+const WAKE_LATER = 'Arrêt gardé sur ce téléphone, il sera envoyé dès que la connexion revient';
 async function saveDodo(f, btn) {
   const r = readDodo(f);
   if (r.error) { toast(r.error, 'err'); btn.disabled = false; return; }
-  if (f.mode === 'wake') return saveWake(f, r, btn);
-  if (r.en === null) {                                   // règle : un seul dodo en cours à la fois par enfant
+  if (r.en === null && f.mode !== 'run') {               // règle : un seul dodo en cours à la fois par enfant
     const other = dodoList(f.childId).find(x => !x.ended_at && x.id !== f.editId);
-    if (other) { toast("Bébé est déjà noté comme endormi depuis " + hhmm(new Date(other.occurred_at)) + " : indiquez d'abord son réveil", 'err', 5000); btn.disabled = false; return; }
+    if (other) { toast("Bébé est déjà noté comme endormi depuis " + hhmm(new Date(other.occurred_at)) + " : arrêtez d'abord ce dodo", 'err', 5000); btn.disabled = false; return; }
   }
   const row = { family_id: S.familyId, child_id: f.childId, kind: 'dodo', occurred_at: new Date(r.s).toISOString(), comment: $('#comment').value.trim() || null };
-  row.ended_at = r.en === null ? null : new Date(r.en).toISOString();
-  if (f.editId) { await saveEdit(f, row); btn.disabled = false; return; }
-  if (row.ended_at === null) delete row.ended_at;        // pas de réveil : la colonne reste vide (comme toutes les entrées)
+  if (f.editId) {                                       // modification (historique) ou enregistrement des corrections d'un dodo en cours
+    if (f.mode === 'edit') row.ended_at = r.en === null ? null : new Date(r.en).toISOString();
+    await saveEdit(f, row); btn.disabled = false; return;
+  }
+  if (r.en !== null) row.ended_at = new Date(r.en).toISOString();      // pas de réveil : la colonne reste vide (comme toutes les entrées)
   const res = await addEntry(row);
   btn.disabled = false;
   if (!res.ok) return;
   closeSheet();
-  if (res.queued) keptToast(QUEUED_MSG); else toast('Ajouté ✔');
+  if (res.queued) keptToast(QUEUED_MSG); else toast(r.en === null ? 'Dodo démarré ✔' : 'Ajouté ✔');
   showLocalNow(); await refreshData();
 }
-// « Réveil » : met à jour la même entrée (jamais une nouvelle)
-async function saveWake(f, r, btn) {
-  const id = f.wakeId, patch = { ended_at: new Date(r.en).toISOString() };
-  const end = async (msg, later) => { btn.disabled = false; closeSheet(); if (later) keptToast(msg); else toast(msg); showLocalNow(); await refreshData(); };
+// Stop : ended_at = maintenant, sur la MÊME entrée (update). extra = corrections faites dans l'écran « Dodo en cours »
+let stopping = false;
+async function stopDodo(id, extra, btn) {
+  if (stopping) return;
+  stopping = true;
+  try { await stopDodoInner(id, extra || {}, btn); } finally { stopping = false; if (btn) btn.disabled = false; }
+}
+async function stopDodoInner(id, extra, btn) {
+  const cur = dodoList().find(x => x.id === id);
+  const refresh = async () => { showLocalNow(); await refreshData(); };
+  if (!cur) { closeSheet(); toast("Ce dodo n'existe plus (supprimé par l'autre parent)", 'err', 5000); return refresh(); }
+  if (cur.ended_at) { closeSheet(); toast("Bébé s'est déjà réveillé à " + hhmm(new Date(cur.ended_at)) + " : le dodo était déjà arrêté", 'err', 5000); return refresh(); }
+  if (blockedOffline()) return;
+  const start = extra.occurred_at ? new Date(extra.occurred_at).getTime() : new Date(cur.occurred_at).getTime();
+  const endMs = Math.max(Date.now(), start), patch = Object.assign({ ended_at: new Date(endMs).toISOString() }, extra);
+  const dur = fmtDur(endMs - start);
+  const done = async (msg, later) => { closeSheet(); if (later) keptToast(msg); else toast(msg); await refresh(); };
   const q = queuedInsert(id);
-  if (q) { Object.assign(q, patch); saveQueue(); return end(WAKE_LATER, true); }       // dodo encore en file : on complète la ligne en attente
-  const later = async () => { queueUpdate(id, patch); btn.disabled = false; closeSheet(); keptToast(WAKE_LATER); showLocalNow(); if (serverOK()) await flushQueue(); await refreshData(); };
+  if (q) { Object.assign(q, patch); saveQueue(); return done(WAKE_LATER, true); }       // dodo encore en file : on complète la ligne en attente
+  const later = async () => { queueUpdate(id, patch); closeSheet(); keptToast(WAKE_LATER); showLocalNow(); if (serverOK()) await flushQueue(); await refreshData(); };
   if (!serverOK() || S.queue.some(x => x.id === id)) return later();                  // sans réseau, ou des envois pour cette entrée attendent déjà : on respecte l'ordre
   let res;
-  try { res = await wt(S.sb.from('entries').update(patch).eq('id', id).select('id')); } catch (e) { res = { error: e }; }
+  try { res = await wt(S.sb.from('entries').update(patch).eq('id', id).is('ended_at', null).select('id')); } catch (e) { res = { error: e }; }
   if (res.error) {
-    btn.disabled = false;
     if (isNetErr(res.error) && !offlineModeOn()) return writeRefused(res.error);
-    if (isNetErr(res.error)) { setNet(true); log('Réveil gardé en attente : ' + frError(res.error).text, res.error.message); return later(); }
-    return fail(res.error, "Enregistrement du réveil");
+    if (isNetErr(res.error)) { setNet(true); log('Arrêt gardé en attente : ' + frError(res.error).text, res.error.message); return later(); }
+    return fail(res.error, "Arrêt du dodo");
   }
-  if (Array.isArray(res.data) && res.data.length === 0) {       // l'autre parent a supprimé ce dodo entre-temps : la suppression l'emporte
-    btn.disabled = false; closeSheet(); mirrorDelete(id); showNotice(CONFLICT_MSG); showLocalNow(); await refreshData(); return;
+  if (Array.isArray(res.data) && res.data.length === 0) {       // aucune ligne : supprimé, ou déjà arrêté par l'autre parent
+    let ex = null;
+    try { const g = await S.sb.from('entries').select('id,ended_at,occurred_at,comment').eq('id', id).eq('family_id', S.familyId); ex = g.error ? undefined : (g.data || [])[0] || null; } catch (e) { ex = undefined; }
+    closeSheet();
+    if (ex) { mirrorPatch(id, { ended_at: ex.ended_at }); toast("Bébé s'est déjà réveillé" + (ex.ended_at ? ' à ' + hhmm(new Date(ex.ended_at)) : '') + " : le dodo était déjà arrêté", 'err', 5000); }
+    else if (ex === null) { mirrorDelete(id); showNotice(CONFLICT_MSG); }
+    return refresh();
   }
   mirrorPatch(id, patch);
-  return end('Réveil enregistré ✔');
+  return done('Dodo arrêté ✔ · ' + dur);
 }
 // détail d'un dodo (ouvert depuis l'historique)
 function dodoDetail(e) {
@@ -2698,6 +2756,13 @@ document.addEventListener('click', async ev => {
       break;
     case 'edit': { if (blockedOffline()) break; const ee = findEntry(el.dataset.id); if (ee) { closeSheet(); formSheet(ee.kind, ee); } break; }
     case 'save': await saveForm(); break;
+    case 'dodostop': { ev.stopPropagation(); if (blockedOffline()) break; const c = curChild(), o = c && dodoOpen(c.id); if (o) await stopDodo(o.id); break; }
+    case 'dodostopform': {
+      const f = S.form; if (!f || f.kind !== 'dodo') break;
+      const r = readDodo(f); if (r.error) { toast(r.error, 'err'); break; }
+      el.disabled = true; await stopDodo(f.editId, { occurred_at: new Date(r.s).toISOString(), comment: $('#comment').value.trim() || null }, el); break;
+    }
+    case 'dodopast': dodoSheet(null, 'past'); break;
     case 'open': { entrySheet(el.dataset.id); const pe = findEntry(el.dataset.id); if (pe && pe.photo_path) showEntryPhoto(pe.photo_path); break; }
     case 'photoremove':
       if (S.photo) setPhoto(null);
@@ -2725,6 +2790,7 @@ document.addEventListener('change', async ev => {
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && ev.target && ev.target.id === 'joinCode') { ev.preventDefault(); joinFamily(); }
   if (ev.key === 'Enter' && ev.target && ev.target.id === 'newName') { ev.preventDefault(); createFamily(); }
+  if ((ev.key === 'Enter' || ev.key === ' ') && ev.target && ev.target.matches && ev.target.matches('.tile[role="button"]')) { ev.preventDefault(); ev.target.click(); }
   if (ev.key === 'Escape') { hideOffModal(); closeSheet(); }
 });
 
