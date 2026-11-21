@@ -174,6 +174,11 @@ body.hasoffbar .toast{bottom:calc(76px + env(safe-area-inset-bottom))}
 .offm .wifioff{width:44px;height:44px;color:var(--off-ink)}
 .offm .wifioff svg{width:100%;height:100%}
 .offm .wifioff{font-size:38px;line-height:44px;text-align:center}
+.newsbody{text-align:left;max-height:55vh;overflow:auto}
+.newsbody p{margin:0}
+.newsl{margin:4px 0 12px;padding-left:20px;font-size:15px;line-height:1.4}
+.newsl li{margin:4px 0}
+.newsl li.nv{list-style:none;margin-left:-20px;margin-top:10px}
 
 /* tableau de bord */
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px}
@@ -2344,19 +2349,36 @@ async function enterFamily() {
   v4Notice();
 }
 
-/* Message unique à la première connexion après le passage à la version 4 (production uniquement).
-   Les nouveaux utilisateurs ne le voient pas : ils n'avaient pas de version précédente. */
-const V4_TEXT = "La version 4 est maintenant déployée. Vous pouvez désormais faire des enregistrements hors connexion, à condition d'activer le mode hors connexion dans les Réglages.";
+/* ===== Message « Nouveautés » : affiché une seule fois à la première ouverture après une montée de version =====
+   Pour chaque nouvelle version, ajouter UNE ligne dans NEWS (v = numéro de version, items = les nouveautés principales).
+   Quelqu'un qui a sauté une version voit les nouveautés de toutes les versions qu'il a manquées.
+   Les nouveaux utilisateurs ne le voient pas (pas de version précédente). Production uniquement (ou ?news=1 pour l'essayer). */
+const NEWS = [
+  { v: '4.0', items: ['Enregistrements hors connexion : activez le mode hors connexion dans les Réglages.'] },
+  { v: '4.1', items: [
+    'Dodo (nuit et sieste) : un chrono à démarrer et à stopper, avec pause.',
+    'Suivi du sommeil : courbe par jour et histogramme des horaires.',
+    'Notification « bébé dort » pour stopper vite (à activer dans les Réglages).'
+  ] }
+];
+const verCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+function newsHtml(list) {
+  const multi = list.length > 1;
+  return '<p><b>La version ' + esc(VERSION) + ' est maintenant déployée.</b></p><p class="soft small" style="margin:6px 0">Nouveautés :</p><ul class="newsl">' +
+    list.map(n => (multi ? '<li class="nv"><b>Version ' + esc(n.v) + '</b></li>' : '') + n.items.map(i => '<li>' + esc(i) + '</li>').join('')).join('') + '</ul>';
+}
 function v4Notice() {
-  const sw = window.PoPoTSW;
-  if (!sw || !sw.defaultOff) return;
-  if (store.get('popot-v4-seen', null)) return;
-  store.set('popot-v4-seen', '1');
-  if (!sw.hadCode) return;
+  const sw = window.PoPoTSW, force = /[?&]news=1(?:&|$)/.test(location.search);
+  if (!force && (!sw || !sw.defaultOff)) return;
+  const last = store.get('popot-seen-version', null) || (store.get('popot-v4-seen', null) ? '4.0' : '3.1');
+  const list = NEWS.filter(n => verCmp(n.v, last) > 0 && verCmp(n.v, VERSION) <= 0);
+  if (!force) store.set('popot-seen-version', VERSION);
+  if (!force && (!sw.hadCode || !list.length)) return;
+  if (force && !list.length) list.push(NEWS[NEWS.length - 1]);
   let el = $('#v4modal');
   if (!el) { el = document.createElement('div'); el.id = 'v4modal'; el.className = 'cele offm'; document.body.appendChild(el); }
   el.innerHTML = '<div class="cbox" role="dialog" aria-modal="true" aria-labelledby="v4txt"><div class="wifioff">✨</div>' +
-    '<p id="v4txt">' + esc(V4_TEXT) + '</p><button class="btn" id="v4okBtn" data-act="v4ok">OK</button></div>';
+    '<div id="v4txt" class="newsbody">' + newsHtml(list) + '</div><button class="btn" id="v4okBtn" data-act="v4ok">OK</button></div>';
   el.classList.add('on');
 }
 
