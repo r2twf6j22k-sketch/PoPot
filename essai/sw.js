@@ -14,7 +14,7 @@
    (voir le script en tête de index.html, qui désinstalle aussi le service worker et vide les réserves). */
 'use strict';
 
-const VERSION = '4.0';
+const VERSION = '4.1';
 const CACHE = 'popot-shell-' + VERSION;
 const CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
 const SCOPE = self.registration.scope;                       // ex. https://nom.github.io/popot/

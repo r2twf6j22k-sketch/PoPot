@@ -17,16 +17,20 @@
    - ?nosw=1 : désinstalle le service worker, vide ses caches et le garde désactivé (réactivable dans Réglages ou avec ?nosw=0)
    - Réglages > « Désactiver le mode hors connexion » : même chose depuis l'application */
 (function () {
-  var KEY = 'popot-sw-off';
-  var api = window.PoPoTSW = { supported: false, off: false, ready: Promise.resolve(), error: null };
-  function flag() { try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; } }
-  function setFlag(v) { try { if (v) localStorage.setItem(KEY, '1'); else localStorage.removeItem(KEY); } catch (e) { /* rien */ } }
+  /* DEFAULT_OFF = true : version de production, le mode hors connexion est éteint tant qu'on ne l'active pas (clé « popot-sw-on »).
+     DEFAULT_OFF = false : lien d'essai, le mode est allumé sauf si on l'éteint (clé « popot-sw-off »). */
+  var DEFAULT_OFF = false;
+  var KEY = DEFAULT_OFF ? 'popot-sw-on' : 'popot-sw-off';
+  var HAD_CODE = false; try { HAD_CODE = !!localStorage.getItem('popot-code'); } catch (e) { /* rien */ }
+  var api = window.PoPoTSW = { supported: false, off: false, defaultOff: DEFAULT_OFF, hadCode: HAD_CODE, ready: Promise.resolve(), error: null };
+  function flag() { try { var v = localStorage.getItem(KEY) === '1'; return DEFAULT_OFF ? !v : v; } catch (e) { return DEFAULT_OFF; } }
+  function setFlag(off) { try { if (off !== DEFAULT_OFF) localStorage.setItem(KEY, '1'); else localStorage.removeItem(KEY); } catch (e) { /* rien */ } }
   api.supported = !!(navigator.serviceWorker) && /^https?:$/.test(location.protocol);
   api.off = flag();
   function wipe() {
     var jobs = [];
     try {
-      if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+      if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { var mine = new URL('./', location.href).href; return Promise.all(rs.filter(function (r) { return r.scope === mine; }).map(function (r) { return r.unregister(); })); }));
       if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return /^popot-/.test(k); }).map(function (k) { return caches.delete(k); })); }));
     } catch (e) { api.error = String(e && e.message || e); }
     // le service worker encore actif peut recréer une réserve vide pendant que la page se charge : on repasse après coup
@@ -63,6 +67,7 @@
   --bg:#f6f3ee; --card:#fdfcfa; --ink:#2e3140; --soft:#6f7380; --line:#e7e1d8;
   --pipi:#5f9ac8; --caca:#a98457; --vomi:#7da46c; --biberon:#cf7f96; --temperature:#d98b62;
   --accent:#5b6fb8; --danger:#b9524f; --s1:#cf7f96; --s2:#4f9d91;
+  --nuit:#4d5fb0; --sieste:#cf8a2e;
   --tb:1.5px; --tbm:60%;
   --warn-bg:#f8efd3; --warn-ink:#6b5320;
   --off-bg:#f5e6e2; --off-ink:#a0524f;
@@ -72,7 +77,8 @@
   :root{ --bg:#11151d; --card:#1a202b; --ink:#eef2f8; --soft:#9aa6b8; --line:#2a3342;
          --accent:#6f8cff; --warn-bg:#4a3a10; --warn-ink:#ffe08a; --off-bg:#4a2a2e; --off-ink:#f4a6aa;
          --pipi:#2f8fdb; --caca:#b4781f; --vomi:#5e9e3a; --biberon:#e5527e; --temperature:#e8590c;
-         --danger:#c62828; --s1:#e5527e; --s2:#0f9d8a; --tb:2.5px; --tbm:100%; }
+         --danger:#c62828; --s1:#e5527e; --s2:#0f9d8a; --tb:2.5px; --tbm:100%;
+         --nuit:#8c9cf0; --sieste:#f0b45a; }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);
@@ -167,6 +173,7 @@ body.hasoffbar .toast{bottom:calc(76px + env(safe-area-inset-bottom))}
 .offm .cbox p{font-size:16px;line-height:1.4}
 .offm .wifioff{width:44px;height:44px;color:var(--off-ink)}
 .offm .wifioff svg{width:100%;height:100%}
+.offm .wifioff{font-size:38px;line-height:44px;text-align:center}
 
 /* tableau de bord */
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px}
@@ -285,6 +292,18 @@ textarea.inp{min-height:76px;resize:vertical}
   padding:18px 6px;margin:12px 0 4px;background:var(--bg);border-radius:18px;border:2px dashed var(--line)}
 pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radius:12px;padding:12px;font-size:12.5px;max-height:44dvh;overflow:auto}
 
+/* dodo : formulaire, histogramme des horaires */
+.dinfo{margin:10px 0 0;min-height:22px;font-weight:600}
+.dinfo.bad{color:var(--danger)}
+.dtag{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.tile.wide{grid-column:1/-1;min-height:96px;height:auto}
+.chartcard .bn{fill:var(--nuit)}
+.chartcard .bs{fill:var(--sieste)}
+.chartcard .nbd{fill:color-mix(in srgb,var(--nuit) 9%,transparent)}
+.chartcard .bsel{stroke:var(--ink);stroke-width:1.5}
+.chartcard .hbar{cursor:pointer}
+.chartcard .tk{fill:var(--soft);font-size:9.5px}
+
 /* message */
 .toast{position:fixed;left:14px;right:14px;bottom:calc(18px + env(safe-area-inset-bottom));max-width:532px;margin:0 auto;
   background:#222a38;color:#fff;border-radius:16px;padding:14px 16px;font-weight:600;z-index:40;
@@ -313,7 +332,7 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-
 /* ===== Réglages de connexion à la base (clé publique : sans danger à cet endroit) ===== */
 const SUPABASE_URL = 'https://fdowvvedysoskszkycte.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkb3d2dmVkeXNvc2tzemt5Y3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTYwNDQsImV4cCI6MjEwNzI5MjA0NH0.pIPak4IZpMqA6wP0jqGwvJSGcib-TnwHjAhxvbXR9Nc';
-const VERSION = '4.0';
+const VERSION = '4.1';
 const PAGE = 40;
 const CDN_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
 const LOCAL_MONTHS = 13;          // durée conservée dans la copie locale du téléphone
@@ -327,7 +346,8 @@ const KINDS = {
   couche:  { emoji: '💩💧', label: 'Couche', art: 'une couche' },
   vomi:    { emoji: '🤢', label: 'Vomi',    art: 'un vomi' },
   biberon: { emoji: '🍼', label: 'Alimentation', art: 'une alimentation' },
-  temperature: { emoji: '🌡️', label: 'Température', art: 'une température' }
+  temperature: { emoji: '🌡️', label: 'Température', art: 'une température' },
+  dodo:    { emoji: '😴', label: 'Dodo',    art: 'un dodo' }
 };
 const COLORS = {
   pipi: [['jaune très clair', '#fbf3b9'], ['jaune', '#f2d544'], ['jaune foncé / orangé', '#e08a1e'], ['rouge', '#d32f2f']],
@@ -697,6 +717,136 @@ const curChild = () => S.children.find(c => c.id === S.childId) || S.children[0]
 const childNameById = id => childName(S.children.find(c => c.id === id));
 const colorHex = (kind, name) => { const f = (COLORS[kind] || []).concat(OLD_COLORS[kind] || []).find(x => x[0] === name); return f ? f[1] : 'transparent'; };
 
+/* ===================================================================================
+   DODO (version 4.1) : calculs purs (sans écran), faciles à tester
+   - Un dodo = une entrée « dodo » : occurred_at = endormissement, ended_at = réveil (absent = bébé dort encore).
+   - Nuit ou sieste n'est jamais choisi : calculé (voir dodoType).
+   - Une journée va de 00h00 à 23h59 (heure du téléphone) : un dodo qui passe minuit est coupé à minuit.
+     Tous les calculs de jours passent par des dates locales (new Date(année, mois, jour…)), jamais par « +24 h » :
+     les jours de changement d'heure (23 h ou 25 h) restent exacts.
+   =================================================================================== */
+const NIGHT_FROM = 20, NIGHT_TO = 7, NIGHT_LONG_MS = 7 * 3600e3;
+const TYPE_LABEL = { nuit: 'Nuit', sieste: 'Sieste' };
+const dayAt = (ms, plus, h) => { const d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + (plus || 0), h || 0).getTime(); };
+// fin d'un dodo : son réveil, ou l'heure actuelle (fin provisoire) s'il dort encore ; jamais avant le début
+function dodoEndMs(e, now) {
+  const s = new Date(e.occurred_at).getTime();
+  const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+  return Math.max(s, en);
+}
+// nuit si le dodo touche la fenêtre 20h-7h (début, fin ou milieu) ou dure plus de 7 h ; sinon sieste
+function dodoType(s, en) {
+  if (en - s > NIGHT_LONG_MS) return 'nuit';
+  for (let t = dayAt(s, -1); t <= en; t = dayAt(t, 1)) {
+    const a = dayAt(t, 0, NIGHT_FROM), b = dayAt(t, 1, NIGHT_TO);
+    if (en > s ? (s < b && en > a) : (s >= a && s < b)) return 'nuit';
+  }
+  return 'sieste';
+}
+// coupe un dodo à chaque minuit local
+function splitDays(s, en) {
+  if (en <= s) return [{ day: dayKey(new Date(s)), from: s, to: s }];
+  const out = []; let cur = s;
+  while (cur < en && out.length < 4000) {
+    const nx = dayAt(cur, 1), to = Math.min(en, nx);
+    out.push({ day: dayKey(new Date(cur)), from: cur, to: to });
+    cur = to;
+  }
+  return out;
+}
+// temps de sommeil dans [a, b] (en ms) : les intervalles qui se chevauchent ne sont comptés qu'une fois
+function sleepBetween(list, a, b, now) {
+  const iv = [];
+  list.forEach(e => { const s = Math.max(new Date(e.occurred_at).getTime(), a), en = Math.min(dodoEndMs(e, now), b); if (en > s) iv.push([s, en]); });
+  iv.sort((x, y) => x[0] - y[0]);
+  let tot = 0, cs = null, ce = null;
+  iv.forEach(x => { if (cs === null) { cs = x[0]; ce = x[1]; } else if (x[0] <= ce) ce = Math.max(ce, x[1]); else { tot += ce - cs; cs = x[0]; ce = x[1]; } });
+  return cs === null ? 0 : tot + (ce - cs);
+}
+// sommeil de nuit / de sieste (ms) dans chaque case [bornes[i], bornes[i+1]] ; le type est celui du dodo ENTIER
+function bucketSleep(list, bounds, now) {
+  const n = bounds.length - 1, out = Array.from({ length: n }, () => ({ nuit: 0, sieste: 0 }));
+  list.forEach(e => {
+    const s = new Date(e.occurred_at).getTime(), en = dodoEndMs(e, now), ty = dodoType(s, en);
+    for (let i = 0; i < n; i++) {
+      if (bounds[i] >= en && en > s) break;
+      const ov = Math.min(en, bounds[i + 1]) - Math.max(s, bounds[i]);
+      if (ov > 0) out[i][ty] += ov;
+    }
+  });
+  return out;
+}
+// bornes des cases d'une courbe : 24 heures (Jour), jours (Semaine, Mois), mois (Année)
+function periodBounds(scale, off) {
+  const p = periodOf(scale, off), y = p.start.getFullYear(), m = p.start.getMonth(), d = p.start.getDate(), b = [];
+  for (let i = 0; i < p.n; i++) b.push(scale === 'day' ? new Date(y, m, d, i).getTime() : scale === 'year' ? new Date(y, i, 1).getTime() : new Date(y, m, d + i).getTime());
+  b.push(p.end.getTime());
+  return b;
+}
+// « 9 h 20 », « 7 h 55 », « 2 h », « 45 min »
+function fmtDur(ms) {
+  const mins = Math.max(0, Math.floor((Number(ms) || 0) / 60000)), h = Math.floor(mins / 60), m = mins % 60;
+  return h ? (m ? h + ' h ' + pad(m) : h + ' h') : m + ' min';
+}
+window.PoPoTLogic = { dodoType: dodoType, splitDays: splitDays, sleepBetween: sleepBetween, bucketSleep: bucketSleep, periodBounds: periodBounds, fmtDur: fmtDur };
+
+/* ----- dodos de l'enfant : copie du téléphone + modifications en attente ----- */
+function dodoList(childId) {
+  return overlay(S.local.entries.filter(e => e.kind === 'dodo')).filter(e => e.kind === 'dodo' && (!childId || e.child_id === childId));
+}
+// le dodo en cours (sans réveil) ; s'il y en avait deux par erreur (course entre parents), le plus récent
+function dodoOpen(childId) {
+  return dodoList(childId).filter(e => !e.ended_at).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at))[0] || null;
+}
+function dodoTileText(childId, now) {
+  now = now || Date.now();
+  const list = dodoList(childId), open = dodoOpen(childId), cum = sleepBetween(list, todayStart().getTime(), now, now);
+  if (open) return '😴 Dort depuis ' + fmtDur(now - new Date(open.occurred_at).getTime()) + ' · cumul ' + fmtDur(cum);
+  return cum >= 60000 ? fmtDur(cum) : "Aucun aujourd'hui";
+}
+// un seul minuteur, aligné sur la minute, uniquement tant que l'accueil est affiché
+let dodoTimer = null;
+function updateDodoMeta() { const m = $('#dodoMeta'), c = curChild(); if (m && c) m.textContent = dodoTileText(c.id); }
+function syncDodoTimer() {
+  const need = S.view === 'dashboard' && !!$('#dodoMeta');
+  if (need && !dodoTimer) dodoTimer = setTimeout(() => { dodoTimer = null; updateDodoMeta(); syncDodoTimer(); }, 60000 - (Date.now() % 60000) + 20);
+  else if (!need && dodoTimer) { clearTimeout(dodoTimer); dodoTimer = null; }
+}
+// dodos de l'enfant qui touchent [a, b[ (y compris ceux commencés avant a)
+function dodoOverlap(childId, a, b, now) {
+  return dodoList(childId).filter(e => { const s = new Date(e.occurred_at).getTime(); return s < b && (dodoEndMs(e, now) > a || s >= a); })
+    .sort((x, y) => new Date(x.occurred_at) - new Date(y.occurred_at));
+}
+// dodos commencés avant « start » et encore en cours, ou terminés depuis (ils comptent dans la période). strict = remonter l'erreur
+async function fetchDodoCarry(start, childId, strict) {
+  const iso = start.toISOString();
+  const q = () => { const x = S.sb.from('entries').select('*').eq('family_id', S.familyId).eq('kind', 'dodo').lt('occurred_at', iso); return childId ? x.eq('child_id', childId) : x; };
+  try {
+    const res = await Promise.all([q().gte('ended_at', iso).limit(1000), q().is('ended_at', null).limit(1000)]);
+    const err = res[0].error || res[1].error;
+    if (err) throw err;
+    return (res[0].data || []).concat(res[1].data || []);
+  } catch (e) {
+    if (strict) throw e;
+    if (!netFail(e) && !S.carryLogged) { S.carryLogged = true; log('Dodos commencés avant minuit : lecture impossible', e && e.message); }
+    return null;
+  }
+}
+// les dodos « à cheval » lus sur le serveur remplacent ceux de la copie du téléphone ; les « fantômes » (encore ouverts chez nous) sont relus
+async function reconcileCarry(carry, start) {
+  const L = S.local; if (!L.familyId) return;
+  const ids = new Set(carry.map(x => x.id));
+  carry.forEach(mirrorUpsert);
+  const queued = new Set(S.queue.filter(x => opType(x) === 'insert').map(x => x.id));
+  const stale = L.entries.filter(e => e.kind === 'dodo' && !ids.has(e.id) && !queued.has(e.id) && new Date(e.occurred_at) < start &&
+    (!e.ended_at || new Date(e.ended_at) >= start)).map(e => e.id).slice(0, 50);
+  if (!stale.length) return;
+  try {
+    const r = await S.sb.from('entries').select('*').eq('family_id', S.familyId).in('id', stale);
+    if (!r.error) (r.data || []).forEach(mirrorUpsert);     // (absent du serveur : la prochaine copie complète le retirera, jamais d'effacement sur une seule réponse)
+  } catch (e) { /* prochaine actualisation */ }
+}
+
 /* ===== Écrans ===== */
 function viewLoading() { return '<div class="center"><div style="font-size:56px">👶</div><p class="soft">Chargement…</p></div>'; }
 
@@ -718,7 +868,22 @@ function viewWelcome() {
     '<button class="btn ghost" data-act="logs" style="margin-top:18px">Journal des erreurs</button>';
 }
 
+// ligne d'historique d'un dodo : « Nuit · 22:10 → 06:05 (7 h 55) », « Sieste · 14:00 → 15:20 (1 h 20) » ou « Dort depuis 14:00 »
+function dodoRow(e) {
+  const s = new Date(e.occurred_at);
+  let head;
+  if (!e.ended_at) head = '<b>Dort depuis ' + hhmm(s) + '</b>';
+  else {
+    const en = new Date(e.ended_at), far = Math.round((sod(en) - sod(s)) / 864e5) >= 2;
+    head = '<b>' + TYPE_LABEL[dodoType(s.getTime(), en.getTime())] + '</b> · ' + hhmm(s) + ' → ' + (far ? fr(en, { day: 'numeric', month: 'numeric' }) + ' ' : '') + hhmm(en) + ' (' + fmtDur(en - s) + ')';
+  }
+  return '<button class="row-item" data-act="open" data-id="' + esc(e.id) + '"><span class="e">' + KINDS.dodo.emoji + '</span>' +
+    '<span class="b"><span>' + head + (S.children.length > 1 ? ' · ' + esc(childNameById(e.child_id)) : '') + '</span>' +
+    (e.comment ? '<span class="c">« ' + esc(e.comment) + ' »</span>' : '') + '</span></button>';
+}
+
 function entryRow(e) {
+  if (e.kind === 'dodo') return dodoRow(e);
   const k = KINDS[e.kind] || { emoji: '•', label: e.kind };
   const bits = [];
   if (e.color) bits.push('<span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
@@ -738,6 +903,7 @@ function viewDashboard() {
   const c = curChild();
   const mine = S.today.filter(e => e.child_id === (c && c.id));
   const stat = k => {
+    if (k === 'dodo') return dodoTileText(c && c.id);
     if (k === 'couche') {
       const l = mine.filter(e => e.kind === 'pipi' || e.kind === 'caca');
       if (!l.length) return "Aucune aujourd'hui";
@@ -748,8 +914,8 @@ function viewDashboard() {
     return l.length ? l.length + " aujourd'hui · dernier à " + hhmm(new Date(l[0].occurred_at)) : "Aucun aujourd'hui";
   };
   const emo = k => k === 'couche' ? '<span class="em em2">💩💧</span>' : '<span class="em">' + KINDS[k].emoji + '</span>';
-  const tile = (k, size, style) => '<button class="tile ' + size + '" style="--c:var(--' + (k === 'couche' ? 'caca' : k) + ');' + (style || '') + '" data-act="add" data-kind="' + k + '">' +
-    emo(k) + '<span class="nm">' + KINDS[k].label + '</span><span class="meta">' + esc(stat(k)) + '</span></button>';
+  const tile = (k, size, style) => '<button class="tile ' + size + '" style="--c:var(--' + (k === 'couche' ? 'caca' : k === 'dodo' ? 'nuit' : k) + ');' + (style || '') + '" data-act="add" data-kind="' + k + '">' +
+    emo(k) + '<span class="nm">' + KINDS[k].label + '</span><span class="meta"' + (k === 'dodo' ? ' id="dodoMeta"' : '') + '>' + esc(stat(k)) + '</span></button>';
   const tabs = S.children.length > 1
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>'
     : '';
@@ -758,20 +924,21 @@ function viewDashboard() {
     (isOffline() ? asofHtml() : '');
   if (adaptiveOn()) {
     const u = S.usage || {};
-    const raw = { couche: (u.pipi || 0) + (u.caca || 0), biberon: u.biberon || 0, vomi: u.vomi || 0, temperature: u.temperature || 0 };
-    const mx = Math.max(raw.couche, raw.biberon, raw.vomi, raw.temperature);
+    const raw = { couche: (u.pipi || 0) + (u.caca || 0), biberon: u.biberon || 0, vomi: u.vomi || 0, temperature: u.temperature || 0, dodo: u.dodo || 0 };
+    const mx = Math.max(raw.couche, raw.biberon, raw.vomi, raw.temperature, raw.dodo);
     const w = k => Math.round((raw[k] + 0.2 * mx + 1) * 100) / 100;
     const wa = w('biberon'), wv = w('vomi');
     return head + '<div class="mosaic">' +
       tile('couche', '', 'flex:' + w('couche') + ' 1 0') +
       '<div class="mrow" style="flex:' + Math.max(wa, wv) + ' 1 0">' + tile('biberon', '', 'flex:' + wa + ' 1 0') + tile('vomi', '', 'flex:' + wv + ' 1 0') + '</div>' +
-      tile('temperature', '', 'flex:' + w('temperature') + ' 1 0') + '</div>' +
+      tile('temperature', '', 'flex:' + w('temperature') + ' 1 0') +
+      tile('dodo', '', 'flex:' + w('dodo') + ' 1 0') + '</div>' +
       '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>';
   }
   const recent = ['biberon', 'caca', 'vomi', 'pipi', 'temperature'].map(k => mine.find(e => e.kind === k)).filter(Boolean);
   return head +
     '<div class="grid">' + tile('couche', 'big') + tile('biberon', 'big') + '</div>' +
-    '<div class="grid">' + tile('vomi', 'small') + tile('temperature', 'small') + '</div>' +
+    '<div class="grid">' + tile('vomi', 'small') + tile('temperature', 'small') + tile('dodo', 'small wide') + '</div>' +
     '<button class="btn alt" data-act="history" style="margin-top:0">📋 Historique</button>' +
     '<h3>Derniers ajouts du jour</h3>' +
     (recent.length ? '<div class="rows">' + recent.map(entryRow).join('') + '</div>' : '<p class="empty">Rien pour le moment. Appuyez sur un bouton pour ajouter une entrée.</p>');
@@ -779,7 +946,7 @@ function viewDashboard() {
 
 function viewHistory() {
   const H = S.hist;
-  const kinds = ['all', 'pipi', 'caca', 'vomi', 'biberon', 'temperature'];
+  const kinds = ['all', 'pipi', 'caca', 'vomi', 'biberon', 'temperature', 'dodo'];
   let html = '<header class="top"><div><div class="hi">PoPoT</div><div class="sub">Historique</div></div>' +
     '<button class="icon" data-act="back" aria-label="Retour">←</button></header>';
   if (H.local) html += asofHtml();
@@ -819,6 +986,7 @@ function render() {
     : viewLoading();
   $('#app').className = (v === 'dashboard' && adaptiveOn()) ? 'full' : '';
   renderBanner();
+  syncDodoTimer();
 }
 
 /* ===== Module 2 : suivi dans le temps (courbes) ===== */
@@ -826,7 +994,9 @@ const STATS = {
   alim: { title: 'Alimentation', emoji: '🍼', kind: 'biberon' },
   caca: { title: 'Caca', emoji: '💩', kind: 'caca' },
   pipi: { title: 'Pipi', emoji: '💧', kind: 'pipi' },
-  temp: { title: 'Température', emoji: '🌡️', kind: 'temperature' }
+  temp: { title: 'Température', emoji: '🌡️', kind: 'temperature' },
+  dodo: { title: 'Dodo', emoji: '😴', kind: 'dodo' },
+  horaires: { title: 'Horaires', emoji: '🕒', kind: 'dodo' }
 };
 // couleurs classées de la plus grave à la moins grave (sert à départager une égalité)
 const GRAVE = {
@@ -886,12 +1056,13 @@ async function loadStat(silent) {
   const p = periodOf(st.scale, st.offset), req = ++st.req;
   if (!silent) { st.loading = true; st.loaded = false; st.failed = false; st.nodata = false; st.items = []; render(); }
   // PARTIE 1 : sans connexion, les courbes se tracent depuis la copie locale du téléphone
-  const fromLocal = () => localQuery({ child: S.childId, kind: STATS[st.key].kind, from: p.start, to: p.end })
-    .sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
+  const fromLocal = () => isDodoStat(st.key) ? dodoOverlap(S.childId, p.start.getTime(), p.end.getTime(), Date.now())
+    : localQuery({ child: S.childId, kind: STATS[st.key].kind, from: p.start, to: p.end }).sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
   try {
     if (serverOK()) {
       let all = [], from = 0;
-      for (;;) {
+      if (isDodoStat(st.key)) all = await fetchDodoPeriod(p);       // dodo : requête propre (dodos à cheval sur le début de la période)
+      else for (;;) {
         const r = await S.sb.from('entries').select('id,occurred_at,color,texture,quantity_drunk,quantity_eaten,temperature,comment')
           .eq('family_id', S.familyId).eq('child_id', S.childId).eq('kind', STATS[st.key].kind)
           .gte('occurred_at', p.start.toISOString()).lt('occurred_at', p.end.toISOString())
@@ -1058,6 +1229,129 @@ function tempCard(st, p) {
     (list ? '<div class="card detail"><h3>Mesures de la période</h3>' + list + '</div>' : '');
 }
 
+/* ===== Courbes du dodo : « Dodo » (barres empilées nuit + sieste) et « Horaires » (une barre par dodo) ===== */
+const isDodoStat = k => k === 'dodo' || k === 'horaires';
+const dodoSwatch = t => '<span class="dtag" style="background:var(--' + t + ')"></span>';
+// dodos qui touchent la période : ceux qui y commencent + ceux commencés avant et encore en cours / finis dedans
+async function fetchDodoPeriod(p) {
+  let all = [], from = 0;
+  for (;;) {
+    const r = await S.sb.from('entries').select('id,occurred_at,ended_at,comment').eq('family_id', S.familyId).eq('child_id', S.childId).eq('kind', 'dodo')
+      .gte('occurred_at', p.start.toISOString()).lt('occurred_at', p.end.toISOString()).order('occurred_at', { ascending: true }).range(from, from + 999);
+    if (r.error) throw r.error;
+    all = all.concat(r.data);
+    if (r.data.length < 1000) break;
+    from += 1000;
+  }
+  const carry = await fetchDodoCarry(p.start, S.childId, true);
+  const seen = new Set(all.map(x => x.id));
+  carry.forEach(x => { if (!seen.has(x.id)) all.push({ id: x.id, occurred_at: x.occurred_at, ended_at: x.ended_at, comment: x.comment }); });
+  return all.sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
+}
+function dodoSummary(st, p, bs, now) {
+  const total = bs.reduce((a, b) => a + b.nuit + b.sieste, 0);
+  const naps = st.items.filter(e => { const s = new Date(e.occurred_at).getTime(); return s >= p.start.getTime() && s < p.end.getTime() && dodoType(s, dodoEndMs(e, now)) === 'sieste'; });
+  const avg = naps.length ? naps.reduce((a, e) => a + dodoEndMs(e, now) - new Date(e.occurred_at).getTime(), 0) / naps.length : 0;
+  return 'Total : ' + fmtDur(total) + ' · ' + (naps.length ? naps.length + ' ' + plur(naps.length, 'sieste', 'siestes') + " · durée moyenne d'une sieste : " + fmtDur(avg) : 'aucune sieste');
+}
+const dodoLegend = '<div class="legend"><span><i style="background:var(--nuit);border-radius:3px"></i>Nuit</span><span><i style="background:var(--sieste);border-radius:3px"></i>Sieste</span></div>';
+const dodoRange = (e, now) => { const s = new Date(e.occurred_at), en = e.ended_at ? new Date(e.ended_at) : null;
+  return en ? hhmm(s) + ' → ' + hhmm(en) + ' (' + fmtDur(en - s) + ')' : 'dort depuis ' + hhmm(s) + ' (' + fmtDur(now - s.getTime()) + ')'; };
+
+function dodoCard(st, p) {
+  const now = Date.now(), bounds = periodBounds(st.scale, st.offset), bs = bucketSleep(st.items, bounds, now);
+  const day = st.scale === 'day', unitMs = day ? 60000 : 3600e3;
+  const W = 360, H = 230, L = 40, R = 14, T = 20, Bm = 28, pw = W - L - R, ph = H - T - Bm, cw = pw / p.n;
+  const vals = bs.map(b => ({ n: b.nuit / unitMs, s: b.sieste / unitMs }));
+  const mx = Math.max.apply(null, vals.slice(0, p.last + 1).map(v => v.n + v.s).concat([0]));
+  let top, step;
+  if (day) { top = 60; step = 15; }
+  else if (st.scale === 'year') { step = niceStep(mx, false); top = step * 4; }
+  else { top = Math.max(4, Math.ceil(mx / 4) * 4); step = top / 4; }
+  const Y = v => T + ph - Math.min(v, top) / top * ph;
+  let g = '';
+  for (let j = 0; j <= 4; j++) {
+    const y = T + ph - j * ph / 4;
+    g += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '"/><text x="' + (L - 6) + '" y="' + (y + 3.5) + '" text-anchor="end">' + fmtQ(j * step) + '</text>';
+  }
+  g += '<text x="' + (L - 6) + '" y="10" text-anchor="end" style="font-weight:700">' + (day ? 'min' : 'h') + '</text>';
+  for (let i = 0; i < p.n; i++) { const lb = p.label(i); if (lb) g += '<text x="' + (L + (i + 0.5) * cw) + '" y="' + (H - 9) + '" text-anchor="middle">' + lb + '</text>'; }
+  if (st.sel != null && st.sel <= p.last) g += '<rect class="selcol" x="' + (L + st.sel * cw) + '" y="' + T + '" width="' + cw + '" height="' + ph + '" rx="4"/>';
+  const bw = Math.min(cw * (p.n > 20 ? 0.78 : 0.62), 34);
+  for (let i = 0; i <= p.last; i++) {
+    const x = L + (i + 0.5) * cw - bw / 2, v = vals[i];
+    if (v.n > 0) g += '<rect class="bn" x="' + x.toFixed(1) + '" y="' + Y(v.n).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + (T + ph - Y(v.n)).toFixed(1) + '" rx="2"/>';
+    if (v.s > 0) g += '<rect class="bs" x="' + x.toFixed(1) + '" y="' + Y(v.n + v.s).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + (Y(v.n) - Y(v.n + v.s)).toFixed(1) + '" rx="2"/>';
+    g += '<rect class="hit" x="' + (L + i * cw) + '" y="' + T + '" width="' + cw + '" height="' + ph + '" data-act="spoint" data-i="' + i + '"/>';
+  }
+  const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sommeil ' + (day ? 'par heure, en minutes' : st.scale === 'year' ? 'total par mois, en heures' : 'par jour, en heures') + ', nuit et sieste">' + g + '</svg>';
+  // détail de la case touchée
+  let detail = '<p class="soft hint">Touchez une barre pour voir le détail.</p>';
+  if (st.sel != null && st.sel <= p.last) {
+    const b = bs[st.sel], a0 = bounds[st.sel], a1 = bounds[st.sel + 1];
+    const list = st.items.filter(e => { const s = new Date(e.occurred_at).getTime(); return s < a1 && (dodoEndMs(e, now) > a0 || s >= a0); });
+    detail = '<h3>' + esc(p.btitle(st.sel)) + '</h3>';
+    if (!list.length) detail += '<p class="soft">Aucun dodo sur cette période.</p>';
+    else {
+      detail += '<div class="kv"><span>' + dodoSwatch('nuit') + 'Nuit</span><b>' + fmtDur(b.nuit) + '</b></div><div class="kv"><span>' + dodoSwatch('sieste') + 'Sieste</span><b>' + fmtDur(b.sieste) + '</b></div>' +
+        '<div class="kv"><span>Total</span><b>' + fmtDur(b.nuit + b.sieste) + '</b></div>';
+      if (st.scale === 'year') detail += '<div class="kv"><span>Moyenne par jour</span><b>' + fmtDur((b.nuit + b.sieste) / Math.max(1, Math.round((a1 - a0) / 864e5))) + '</b></div>';
+      detail += list.slice(0, 40).map(e => { const s = new Date(e.occurred_at), t = dodoType(s.getTime(), dodoEndMs(e, now));
+        return '<div class="dl"><span class="t">' + (st.scale === 'year' ? pad(s.getDate()) + '/' + pad(s.getMonth() + 1) + ' ' : '') + hhmm(s) + '</span><span><b>' + TYPE_LABEL[t] + '</b> · ' + esc(dodoRange(e, now)) + '</span></div>'; }).join('') +
+        (list.length > 40 ? '<p class="soft">… et ' + (list.length - 40) + ' autres</p>' : '');
+    }
+  }
+  return '<div class="chartcard"><div class="legend"><b>' + esc(dodoSummary(st, p, bs, now)) + '</b></div>' + dodoLegend + svg + '</div>' +
+    (st.scale === 'year' ? '<p class="soft small" style="margin:6px 4px 0">Chaque barre est le total du mois.</p>' : '') + '<div class="card detail">' + detail + '</div>';
+}
+
+/* Histogramme « Horaires » : une colonne par jour, 0h en haut et 24h en bas ; chaque dodo est un rectangle de son heure de début à son heure de fin
+   (coupé à minuit : un morceau sur chaque colonne). La zone teintée est l'horaire de nuit (20h-7h). */
+function horairesCard(st, p) {
+  const now = Date.now();
+  const bounds = st.scale === 'day' ? [p.start.getTime(), p.end.getTime()] : periodBounds(st.scale, st.offset), n = bounds.length - 1;
+  const W = 360, H = 340, L = 34, R = 10, T = 12, Bm = 38, pw = W - L - R, ph = H - T - Bm, cw = pw / n;
+  const Y = (t, i) => T + ph * Math.max(0, Math.min(1, (t - bounds[i]) / (bounds[i + 1] - bounds[i])));
+  let g = '<rect class="nbd" x="' + L + '" y="' + T + '" width="' + pw + '" height="' + (ph * NIGHT_TO / 24).toFixed(1) + '"/>' +
+    '<rect class="nbd" x="' + L + '" y="' + (T + ph * NIGHT_FROM / 24).toFixed(1) + '" width="' + pw + '" height="' + (ph * (24 - NIGHT_FROM) / 24).toFixed(1) + '"/>';
+  for (let h = 0; h <= 24; h += 4) {
+    const y = T + ph * h / 24;
+    g += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '"/><text x="' + (L - 5) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end">' + h + 'h</text>';
+  }
+  for (let i = 0; i < n; i++) {
+    const cx = L + (i + 0.5) * cw, d = new Date(bounds[i]);
+    if (st.scale === 'week') g += '<text x="' + cx.toFixed(1) + '" y="' + (H - 22) + '" text-anchor="middle">' + p.label(i) + '</text><text x="' + cx.toFixed(1) + '" y="' + (H - 9) + '" text-anchor="middle">' + d.getDate() + '</text>';
+    else if (st.scale === 'day') g += '<text x="' + cx.toFixed(1) + '" y="' + (H - 14) + '" text-anchor="middle">' + esc(fr(d, { weekday: 'long', day: 'numeric', month: 'long' })) + '</text>';
+    else if (i === 0 || (i + 1) % 5 === 0) g += '<text x="' + cx.toFixed(1) + '" y="' + (H - 14) + '" text-anchor="middle">' + (i + 1) + '</text>';
+  }
+  const bw = Math.min(cw * (n > 20 ? 0.8 : 0.62), 64);
+  let bars = '', hits = '';
+  st.items.forEach(e => {
+    const s = new Date(e.occurred_at).getTime(), en = dodoEndMs(e, now), t = dodoType(s, en), sel = st.selId === e.id;
+    for (let i = 0; i < n; i++) {
+      if (bounds[i] >= en && en > s) break;
+      const a = Math.max(s, bounds[i]), z = Math.min(en, bounds[i + 1]);
+      if (!(z > a || (z === a && s === en && a >= bounds[i] && a < bounds[i + 1]))) continue;
+      const y1 = Y(a, i), h = Math.max(Y(z, i) - y1, 2.5), x = L + (i + 0.5) * cw - bw / 2;
+      bars += '<rect class="' + (t === 'nuit' ? 'bn' : 'bs') + (sel ? ' bsel' : '') + '" x="' + x.toFixed(1) + '" y="' + y1.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2"/>';
+      hits += '<rect class="hit hbar" x="' + (x - 1.5).toFixed(1) + '" y="' + (y1 - Math.max(0, (12 - h) / 2)).toFixed(1) + '" width="' + (bw + 3).toFixed(1) + '" height="' + Math.max(h, 12).toFixed(1) + '" data-act="dbar" data-id="' + esc(e.id) + '"/>';
+    }
+  });
+  const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Horaires de dodo : une colonne par jour, de 0h en haut à 24h en bas, nuit et sieste">' + g + bars + hits + '</svg>';
+  const sel = st.selId ? st.items.find(e => e.id === st.selId) : null;
+  let detail = '<p class="soft hint">' + (st.items.length ? 'Touchez une barre pour voir les horaires.' : 'Aucun dodo sur cette période.') + '</p>';
+  if (sel) {
+    const s = new Date(sel.occurred_at), en = sel.ended_at ? new Date(sel.ended_at) : null, t = dodoType(s.getTime(), dodoEndMs(sel, now));
+    const long = d => fr(d, { weekday: 'long', day: 'numeric', month: 'long' }) + ' à ' + hhmm(d);
+    detail = '<h3>' + dodoSwatch(t) + TYPE_LABEL[t] + ' · ' + (en ? fmtDur(en - s) : 'en cours depuis ' + fmtDur(now - s.getTime())) + '</h3>' +
+      '<p style="margin:0"><b>' + hhmm(s) + ' → ' + (en ? hhmm(en) : '…') + '</b></p>' +
+      '<p class="soft" style="margin:4px 0 0">Endormi ' + esc(long(s)) + (en ? '<br>Réveillé ' + esc(long(en)) : '<br>Bébé dort encore') + '</p>' + (sel.comment ? '<p style="margin:6px 0 0">« ' + esc(sel.comment) + ' »</p>' : '');
+  }
+  const bs = bucketSleep(st.items, bounds, now);
+  return '<div class="chartcard"><div class="legend"><b>' + esc(dodoSummary(st, p, bs, now)) + '</b></div>' + dodoLegend +
+    '<div class="legend soft"><span>Zone teintée : horaire de nuit (20h-7h)</span></div>' + svg + '</div><div class="card detail">' + detail + '</div>';
+}
+
 const HOME_BTN = '<button class="icon" data-act="gohome" aria-label="Retour à l\'accueil">🏠</button>';
 function viewStats() {
   const st = S.stat, cfg = STATS[st.key], p = periodOf(st.scale, st.offset);
@@ -1066,7 +1360,7 @@ function viewStats() {
     ? '<div class="chips">' + S.children.map(ch => '<button class="chip ' + (ch.id === (c && c.id) ? 'on' : '') + '" data-act="child" data-id="' + esc(ch.id) + '">' + esc(childName(ch)) + '</button>').join('') + '</div>' : '';
   let html = '<header class="top"><div class="lft"><button class="icon" data-act="menu" aria-label="Menu">☰</button>' +
     '<div><div class="hi">Suivi dans le temps</div><div class="sub">' + cfg.emoji + ' ' + cfg.title + '</div></div></div>' + HOME_BTN + '</header>' + tabs +
-    '<div class="chips">' + SCALES.map(s => '<button class="chip ' + (st.scale === s[0] ? 'on' : '') + '" data-act="sscale" data-s="' + s[0] + '">' + s[1] + '</button>').join('') + '</div>' +
+    '<div class="chips">' + SCALES.filter(s => !(st.key === 'horaires' && s[0] === 'year')).map(s => '<button class="chip ' + (st.scale === s[0] ? 'on' : '') + '" data-act="sscale" data-s="' + s[0] + '">' + s[1] + '</button>').join('') + '</div>' +
     '<div class="pnav"><button class="icon sm" data-act="sprev" aria-label="Période précédente">◀</button><div class="ptitle">' + esc(p.title) + '</div>' +
     '<button class="icon sm" data-act="snext" aria-label="Période suivante"' + (st.offset >= 0 ? ' disabled' : '') + '>▶</button></div>';
   if (!S.childId) return html + '<p class="empty">Aucun enfant dans cette famille.</p>';
@@ -1075,6 +1369,8 @@ function viewStats() {
   if (st.failed) return html + '<div class="empty">Impossible de charger les courbes. Une connexion est nécessaire.<br><button class="btn alt" data-act="sretry">Réessayer</button></div>';
   if (!st.loaded) return html + '<p class="empty">Chargement…</p>';
   if (st.key === 'temp') return html + tempCard(st, p);
+  if (st.key === 'dodo') return html + dodoCard(st, p);
+  if (st.key === 'horaires') return html + horairesCard(st, p);
   const B = statBuckets(st, p);
   let total, legend = '';
   if (st.key === 'alim') {
@@ -1287,7 +1583,7 @@ function drawerHtml() {
 function openMenu() { $('#drawer').innerHTML = drawerHtml(); $('#drawer').classList.add('on'); $('#dbackdrop').classList.add('on'); }
 function closeMenu() { $('#drawer').classList.remove('on'); $('#dbackdrop').classList.remove('on'); }
 async function openStat(key) {
-  S.stat = { key: key, scale: (S.stat && S.stat.scale) || 'week', offset: 0, items: [], sel: null, req: 0, loading: true, loaded: false, failed: false };
+  S.stat = { key: key, scale: key === 'horaires' && S.stat && S.stat.scale === 'year' ? 'week' : (S.stat && S.stat.scale) || 'week', offset: 0, items: [], sel: null, req: 0, loading: true, loaded: false, failed: false };
   S.view = 'stats';
   closeMenu();
   await loadStat();
@@ -1382,6 +1678,7 @@ function paintLevel() {
 
 function formSheet(kind, entry) {
   if (kind === 'couche') return coucheSheet();
+  if (kind === 'dodo') return dodoSheet(entry);
   S.photo = null;
   const k = KINDS[kind], c = entry ? (S.children.find(x => x.id === entry.child_id) || curChild()) : curChild();
   S.form = { kind: kind, color: entry ? entry.color : (kind === 'vomi' ? 'blanc' : null), texture: entry && kind === 'caca' ? entry.texture : null,
@@ -1416,6 +1713,129 @@ function formSheet(kind, entry) {
   document.querySelectorAll('.swb').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.color));
   document.querySelectorAll('[data-act="texture"]').forEach(b => b.classList.toggle('on', b.dataset.name === S.form.texture));
   paintLevel();
+}
+
+/* Formulaire « Dodo » : trois cas
+   - new  : bébé ne dort pas -> heure d'endormissement (maintenant), réveil facultatif (vide = il s'endort maintenant), commentaire
+   - wake : bébé dort -> « Réveil » : une seule heure (maintenant), qui met à jour la même entrée
+   - edit : modification depuis l'historique */
+function dodoSheet(entry) {
+  S.photo = null;
+  const c = entry ? (S.children.find(x => x.id === entry.child_id) || curChild()) : curChild();
+  const open = entry ? null : dodoOpen(c && c.id);
+  const mode = entry ? 'edit' : open ? 'wake' : 'new';
+  S.form = { kind: 'dodo', mode: mode, childId: c && c.id, editId: entry ? entry.id : null, wakeId: open ? open.id : null, photoPath: null, photoGone: false };
+  const who = S.children.length > 1 ? '<p class="soft" style="margin:4px 0 0">Pour : ' + esc(childName(c)) + '</p>' : '';
+  const inp = (id, ms) => '<input id="' + id + '" class="inp" type="datetime-local" value="' + (ms == null ? '' : inputValue(new Date(ms))) + '">';
+  let title, body, btn;
+  if (mode === 'wake') {
+    const s = new Date(open.occurred_at);
+    title = 'Réveil'; btn = 'Enregistrer le réveil';
+    body = '<p class="soft">Endormi : ' + esc(dayLabel(s)) + ' à ' + hhmm(s) + '</p>' +
+      '<label class="lbl" for="dEnd">Heure de réveil</label>' + inp('dEnd', Date.now()) + '<div id="dInfo" class="dinfo" aria-live="polite"></div>';
+  } else {
+    title = entry ? 'Modifier : dodo' : 'Dodo'; btn = entry ? 'Enregistrer les modifications' : 'Enregistrer';
+    body = '<label class="lbl" for="dStart">Heure d\'endormissement</label>' + inp('dStart', entry ? new Date(entry.occurred_at).getTime() : Date.now()) +
+      '<label class="lbl" for="dEnd">Heure de réveil (facultatif)</label>' + inp('dEnd', entry && entry.ended_at ? new Date(entry.ended_at).getTime() : null) +
+      '<p class="soft small" style="margin:6px 0 0">Laissez vide si bébé vient de s\'endormir : vous saisirez le réveil plus tard.</p>' +
+      '<div id="dInfo" class="dinfo" aria-live="polite"></div>' +
+      '<label class="lbl" for="comment">Commentaire (facultatif)</label><textarea id="comment" class="inp" maxlength="500">' + esc(entry && entry.comment || '') + '</textarea>';
+  }
+  openSheet('<h2>' + KINDS.dodo.emoji + ' ' + title + '</h2>' + who + body +
+    '<button class="btn" id="saveBtn" data-act="save">' + btn + '</button><button class="btn ghost" data-act="close">Annuler</button>');
+  paintDodo();
+}
+// lit et vérifie les heures saisies ; renvoie { s, en } (en = null si pas de réveil) ou { error }
+function readDodo(f) {
+  const now = Date.now();
+  let s;
+  if (f.mode === 'wake') {
+    const e = dodoList(f.childId).find(x => x.id === f.wakeId);
+    if (!e) return { error: "Ce dodo n'existe plus (supprimé par l'autre parent)" };
+    s = new Date(e.occurred_at).getTime();
+  } else {
+    const v = $('#dStart').value;
+    s = v ? new Date(v).getTime() : NaN;
+    if (isNaN(s)) return { error: "Indiquez l'heure d'endormissement" };
+    if (s > now) return { error: "L'heure d'endormissement ne peut pas être dans le futur" };
+  }
+  const ev = $('#dEnd').value;
+  if (!ev) return f.mode === 'wake' ? { error: "Indiquez l'heure de réveil" } : { s: s, en: null };
+  const en = new Date(ev).getTime();
+  if (isNaN(en)) return { error: 'Heure de réveil invalide' };
+  if (en < s) return { error: "Le réveil ne peut pas être avant l'endormissement" };
+  if (en > now) return { error: "L'heure de réveil ne peut pas être dans le futur" };
+  return { s: s, en: en };
+}
+// affiche en direct le type calculé (Nuit / Sieste) et la durée
+function paintDodo() {
+  const f = S.form, el = $('#dInfo');
+  if (!f || f.kind !== 'dodo' || !el) return;
+  const r = readDodo(f);
+  let html = '', bad = false;
+  if (r.error) { bad = !/^Indiquez/.test(r.error); html = bad ? esc(r.error) : ''; }
+  else {
+    const now = Date.now(), end = r.en === null ? Math.max(now, r.s) : r.en, t = dodoType(r.s, end);
+    html = '<span class="dtag" style="background:var(--' + t + ')"></span><b>' + TYPE_LABEL[t] + '</b> · ' +
+      (r.en === null ? 'en cours' + (end - r.s >= 60000 ? ' depuis ' + fmtDur(end - r.s) : '') : fmtDur(end - r.s));
+  }
+  el.className = 'dinfo' + (bad ? ' bad' : '');
+  el.innerHTML = html;
+}
+const WAKE_LATER = 'Réveil gardé sur ce téléphone, il sera envoyé dès que la connexion revient';
+async function saveDodo(f, btn) {
+  const r = readDodo(f);
+  if (r.error) { toast(r.error, 'err'); btn.disabled = false; return; }
+  if (f.mode === 'wake') return saveWake(f, r, btn);
+  if (r.en === null) {                                   // règle : un seul dodo en cours à la fois par enfant
+    const other = dodoList(f.childId).find(x => !x.ended_at && x.id !== f.editId);
+    if (other) { toast("Bébé est déjà noté comme endormi depuis " + hhmm(new Date(other.occurred_at)) + " : indiquez d'abord son réveil", 'err', 5000); btn.disabled = false; return; }
+  }
+  const row = { family_id: S.familyId, child_id: f.childId, kind: 'dodo', occurred_at: new Date(r.s).toISOString(), comment: $('#comment').value.trim() || null };
+  row.ended_at = r.en === null ? null : new Date(r.en).toISOString();
+  if (f.editId) { await saveEdit(f, row); btn.disabled = false; return; }
+  if (row.ended_at === null) delete row.ended_at;        // pas de réveil : la colonne reste vide (comme toutes les entrées)
+  const res = await addEntry(row);
+  btn.disabled = false;
+  if (!res.ok) return;
+  closeSheet();
+  if (res.queued) keptToast(QUEUED_MSG); else toast('Ajouté ✔');
+  showLocalNow(); await refreshData();
+}
+// « Réveil » : met à jour la même entrée (jamais une nouvelle)
+async function saveWake(f, r, btn) {
+  const id = f.wakeId, patch = { ended_at: new Date(r.en).toISOString() };
+  const end = async (msg, later) => { btn.disabled = false; closeSheet(); if (later) keptToast(msg); else toast(msg); showLocalNow(); await refreshData(); };
+  const q = queuedInsert(id);
+  if (q) { Object.assign(q, patch); saveQueue(); return end(WAKE_LATER, true); }       // dodo encore en file : on complète la ligne en attente
+  const later = async () => { queueUpdate(id, patch); btn.disabled = false; closeSheet(); keptToast(WAKE_LATER); showLocalNow(); if (serverOK()) await flushQueue(); await refreshData(); };
+  if (!serverOK() || S.queue.some(x => x.id === id)) return later();                  // sans réseau, ou des envois pour cette entrée attendent déjà : on respecte l'ordre
+  let res;
+  try { res = await wt(S.sb.from('entries').update(patch).eq('id', id).select('id')); } catch (e) { res = { error: e }; }
+  if (res.error) {
+    btn.disabled = false;
+    if (isNetErr(res.error) && !offlineModeOn()) return writeRefused(res.error);
+    if (isNetErr(res.error)) { setNet(true); log('Réveil gardé en attente : ' + frError(res.error).text, res.error.message); return later(); }
+    return fail(res.error, "Enregistrement du réveil");
+  }
+  if (Array.isArray(res.data) && res.data.length === 0) {       // l'autre parent a supprimé ce dodo entre-temps : la suppression l'emporte
+    btn.disabled = false; closeSheet(); mirrorDelete(id); showNotice(CONFLICT_MSG); showLocalNow(); await refreshData(); return;
+  }
+  mirrorPatch(id, patch);
+  return end('Réveil enregistré ✔');
+}
+// détail d'un dodo (ouvert depuis l'historique)
+function dodoDetail(e) {
+  const now = Date.now(), s = new Date(e.occurred_at), en = e.ended_at ? new Date(e.ended_at) : null, t = dodoType(s.getTime(), dodoEndMs(e, now));
+  const lines = ['Type : <b>' + TYPE_LABEL[t] + '</b>' + (en ? '' : ' (provisoire)'), 'Endormissement : ' + esc(dayLabel(s)) + ' à ' + hhmm(s),
+    en ? 'Réveil : ' + esc(dayLabel(en)) + ' à ' + hhmm(en) : 'Bébé dort encore (depuis ' + fmtDur(now - s.getTime()) + ')'];
+  if (en) lines.push('Durée : ' + fmtDur(en - s));
+  if (e.comment) lines.push('Commentaire : « ' + esc(e.comment) + ' »');
+  openSheet('<h2>' + KINDS.dodo.emoji + ' Dodo</h2>' + (S.children.length > 1 ? '<p class="soft">' + esc(childNameById(e.child_id)) + '</p>' : '') +
+    lines.map(l => '<div class="kv"><span>' + l + '</span></div>').join('') +
+    '<button class="btn" data-act="edit" data-id="' + esc(e.id) + '">✏️ Modifier</button>' +
+    '<button class="btn danger" data-act="delete" data-id="' + esc(e.id) + '">Supprimer</button>' +
+    '<button class="btn ghost" data-act="close">Fermer</button>');
 }
 
 /* Formulaire « Couche » : pipi et/ou caca en une seule fois */
@@ -1458,6 +1878,7 @@ function findEntry(id) { return S.today.find(e => e.id === id) || S.hist.items.f
 function entrySheet(id) {
   const e = findEntry(id);
   if (!e) return;
+  if (e.kind === 'dodo') return dodoDetail(e);
   const k = KINDS[e.kind], d = new Date(e.occurred_at);
   const lines = [];
   if (e.color) lines.push('Couleur : <span class="dot" style="background:' + colorHex(e.kind, e.color) + '"></span>' + esc(e.color));
@@ -1545,6 +1966,8 @@ async function loadToday() {
   const rows = r.data || [], prev = S.local.entries.filter(e => new Date(e.occurred_at) >= start).length;
   if (rows.length) { if (S.local.suspectTodayAt) { S.local.suspectTodayAt = null; persistLocal(); } localMergeToday(rows, start); }
   else if (await acceptEmpty('suspectTodayAt', prev)) localMergeToday(rows, start);
+  const carry = await fetchDodoCarry(start);     // dodos commencés hier (ou avant) : encore en cours, ou finis aujourd'hui
+  if (carry) await reconcileCarry(carry, start);
   S.today = overlay(rows).filter(e => new Date(e.occurred_at) >= start).sort(byTimeDesc);
 }
 
@@ -1632,6 +2055,23 @@ async function enterFamily() {
   if (S.queue.length) flushQueue(true);   // les fêtes sont évaluées juste après le renvoi
   else checkAch(TRACK_KEYS, true);
   cleanOldPhotos();
+  v4Notice();
+}
+
+/* Message unique à la première connexion après le passage à la version 4 (production uniquement).
+   Les nouveaux utilisateurs ne le voient pas : ils n'avaient pas de version précédente. */
+const V4_TEXT = "La version 4 est maintenant déployée. Vous pouvez désormais faire des enregistrements hors connexion, à condition d'activer le mode hors connexion dans les Réglages.";
+function v4Notice() {
+  const sw = window.PoPoTSW;
+  if (!sw || !sw.defaultOff) return;
+  if (store.get('popot-v4-seen', null)) return;
+  store.set('popot-v4-seen', '1');
+  if (!sw.hadCode) return;
+  let el = $('#v4modal');
+  if (!el) { el = document.createElement('div'); el.id = 'v4modal'; el.className = 'cele offm'; document.body.appendChild(el); }
+  el.innerHTML = '<div class="cbox" role="dialog" aria-modal="true" aria-labelledby="v4txt"><div class="wifioff">✨</div>' +
+    '<p id="v4txt">' + esc(V4_TEXT) + '</p><button class="btn" id="v4okBtn" data-act="v4ok">OK</button></div>';
+  el.classList.add('on');
 }
 
 async function loadFamily() {
@@ -1747,7 +2187,7 @@ async function flushQueueLocked(force) {
         log("Une modification en attente a été abandonnée : " + f.text, r.error.message);
         dropped++;
       } else if (r.missing) {
-        conflicts++;
+        conflicts++; mirrorDelete(op.id);           // l'entrée n'existe plus sur le serveur : on la retire aussi de la copie du téléphone
         log("Modification abandonnée : l'entrée " + op.id + " avait été supprimée par l'autre parent");
       } else {
         done++;
@@ -1799,6 +2239,7 @@ async function saveFormInner() {
   if (blockedOffline()) return;
   const btn = $('#saveBtn');
   btn.disabled = true;
+  if (f.kind === 'dodo') { await saveDodo(f, btn); return; }
   const when = $('#when').value;
   const d = when ? new Date(when) : new Date();
   if (isNaN(d.getTime())) { toast('Heure invalide', 'err'); btn.disabled = false; return; }
@@ -1894,6 +2335,7 @@ async function saveEdit(f, row) {
   const id = f.editId;
   const payload = { occurred_at: row.occurred_at, comment: row.comment, color: null, texture: null, quantity_drunk: null, quantity_eaten: null, temperature: null };
   ['color', 'texture', 'quantity_drunk', 'quantity_eaten', 'temperature'].forEach(k => { if (row[k] !== undefined) payload[k] = row[k]; });
+  if (row.ended_at !== undefined) payload.ended_at = row.ended_at;       // dodo uniquement : les autres entrées n'envoient jamais ended_at
   // entrée encore en attente d'envoi sur ce téléphone : on modifie la copie locale
   const q = queuedInsert(id);
   if (q) {
@@ -2198,6 +2640,7 @@ document.addEventListener('click', async ev => {
   switch (a) {
     case 'close': closeSheet(); break;
     case 'offok': hideOffModal(); break;
+    case 'v4ok': { const e = $('#v4modal'); if (e) { e.classList.remove('on'); e.innerHTML = ''; } break; }
     case 'swtoggle': await toggleOfflineMode(); break;
     case 'retry': boot(); break;
     case 'create': el.disabled = true; await createFamily(); el.disabled = false; break;
@@ -2222,6 +2665,7 @@ document.addEventListener('click', async ev => {
     case 'snext': if (S.stat.offset < 0) { S.stat.offset += 1; S.stat.sel = null; await loadStat(); } break;
     case 'sretry': await loadStat(); break;
     case 'spoint': S.stat.sel = Number(el.dataset.i); render(); break;
+    case 'dbar': S.stat.selId = el.dataset.id; render(); break;
     case 'settings': settingsSheet(); break;
     case 'history':
       S.view = 'history';
@@ -2270,6 +2714,7 @@ document.addEventListener('click', async ev => {
   }
 });
 
+document.addEventListener('input', ev => { if (ev.target && (ev.target.id === 'dStart' || ev.target.id === 'dEnd')) paintDodo(); });
 document.addEventListener('change', async ev => {
   if (ev.target && ev.target.id === 'hday') {
     S.hist.day = ev.target.value || '';
@@ -2289,6 +2734,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   const n = store.get('popot-notice', null);
   if (n) { store.del('popot-notice'); toast(n, 'err', 12000); }
+  if (S.view === 'dashboard') updateDodoMeta();
   if (S.familyId) probe();
 });
 
